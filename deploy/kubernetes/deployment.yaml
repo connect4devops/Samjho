@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: samjho
+  namespace: samjho
+  labels:
+    app: samjho
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: samjho
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: samjho
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: samjho
+          image: samjho:latest # Replace with your registry image
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+              name: http
+          envFrom:
+            - configMapRef:
+                name: samjho-config
+            - secretRef:
+                name: samjho-secret
+          # App writes settings here. If readOnlyRootFilesystem is true, we must mount this.
+          volumeMounts:
+            - name: settings-dir
+              mountPath: /home/app/.scribble2structure
+            - name: tmp-dir
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Graceful shutdown allows ongoing inferences to complete (within max analysis time)
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "10"]
+      volumes:
+        - name: settings-dir
+          emptyDir: {}
+        - name: tmp-dir
+          emptyDir: {}
+      terminationGracePeriodSeconds: 310 # Slightly longer than MAX_ANALYZE_SECONDS

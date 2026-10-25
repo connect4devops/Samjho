@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: samjho-config
+  namespace: samjho
+data:
+  # The endpoint is hardcoded to JarvisLabs Serverless in the app.
+  # We just set non-sensitive timeouts and limits.
+  JARVISLABS_TIMEOUT_SECONDS: "120"
+  JARVISLABS_MAX_OUTPUT_TOKENS: "4096"
+  MAX_UPLOAD_MB: "10"
+  MAX_ANALYZE_SECONDS: "300"
+  # This matches the deployment's model identifier
+  JARVISLABS_MODEL: "gemma-4-26b-a4b-it"

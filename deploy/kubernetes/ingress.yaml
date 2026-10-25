@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: samjho-ingress
+  namespace: samjho
+  annotations:
+    # Example for NGINX ingress controller
+    nginx.ingress.kubernetes.io/proxy-body-size: "12m" # Must be larger than MAX_UPLOAD_MB
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "360" # Must be larger than MAX_ANALYZE_SECONDS
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  # ingressClassName: nginx
+  # tls:
+  #   - hosts:
+  #       - samjho.example.com
+  #     secretName: samjho-tls
+  rules:
+    - host: samjho.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: samjho
+                port:
+                  number: 80
