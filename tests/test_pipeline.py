@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import json
 
+import httpx
 from fastapi.testclient import TestClient
 
 from app import ai_client, main
@@ -77,7 +78,7 @@ class TestMetadataEndpoints:
         assert data["api_key"] == "present"
         assert data["model"] == ai_client.DEFAULT_MODEL
         assert data["endpoint"] == ai_client.endpoint_url()
-        assert data["model_chain"] == [ai_client.DEFAULT_MODEL]
+        assert "model_chain" not in data
 
     def test_config_endpoint_reports_the_configured_model(self):
         resp = client.get("/api/config")
@@ -85,6 +86,7 @@ class TestMetadataEndpoints:
         data = resp.json()
         assert data["api_key_present"] is True
         assert data["model"] == ai_client.DEFAULT_MODEL
+        assert data["endpoint_configured"] is True
         assert "modes" in data
         assert "auto" in data["modes"]
 
@@ -157,6 +159,45 @@ class TestEndToEndPipeline:
         assert payload["telemetry"]["endpoint"] == ai_client.endpoint_url()
         assert payload["telemetry"]["elapsed_ms"] >= 0
         assert len(genai.calls) == 1
+
+    def test_jarvislabs_provider_runs_through_analyze_endpoint(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "jarvislabs")
+        monkeypatch.setenv("JARVISLABS_API_KEY", "test-jarvis-key")
+        monkeypatch.setenv(
+            "JARVISLABS_BASE_URL",
+            "https://serverlessn.jarvislabs.net/openai/test-deployment/v1",
+        )
+        monkeypatch.setenv("JARVISLABS_MODEL", "gemma-4-26b-a4b-it")
+
+        class FakeJarvis:
+            def __init__(self):
+                self.request = None
+
+            def post(self, url, headers, json):
+                self.request = {"url": url, "headers": headers, "json": json}
+                return httpx.Response(
+                    200,
+                    json={
+                        "choices": [
+                            {"message": {"content": REALISTIC_RESPONSE}}
+                        ]
+                    },
+                    request=httpx.Request("POST", url),
+                )
+
+        fake = FakeJarvis()
+        monkeypatch.setattr(ai_client, "_get_client", lambda: fake)
+        files = {"image": ("board.png", _png_bytes(), "image/png")}
+        resp = client.post("/api/analyze", files=files, data={"mode": "auto"})
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["title"] == "Cache Invalidation Strategy"
+        assert payload["telemetry"]["provider_used"] == "jarvislabs"
+        assert payload["telemetry"]["model_used"] == "gemma-4-26b-a4b-it"
+        assert fake.request["url"].endswith("/chat/completions")
+        assert fake.request["headers"]["Authorization"] == "Bearer test-jarvis-key"
+        assert fake.request["json"]["messages"][0]["content"][0]["type"] == "image_url"
 
     def test_inference_error_becomes_502(self, client_env):
         client_env(error=FakeAPIError("Service unavailable", 503))

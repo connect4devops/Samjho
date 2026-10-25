@@ -16,8 +16,10 @@ import pytest
 from app import ai_client
 
 from conftest import FakeAPIError, FakeResponse, part_texts, reply_json
+import httpx
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+DEFAULT_PROVIDER = ai_client.provider
 
 
 def inline_parts(contents):
@@ -94,16 +96,19 @@ class TestModelNaming:
         """The shipped default must not drift from the documented one."""
         readme = io.open(ROOT / "readme.md", encoding="utf-8").read()
         env_example = io.open(ROOT / ".env.example", encoding="utf-8").read()
-        assert f"GEMMA_MODEL={ai_client.DEFAULT_MODEL}" in readme
-        assert f"GEMMA_MODEL={ai_client.DEFAULT_MODEL}" in env_example
-        # Every documented id must be one the client knows how to name.
-        for model in ai_client.KNOWN_MODELS:
-            assert model in readme, f"{model} is undocumented"
-            assert model in env_example, f"{model} is missing from .env.example"
+        assert (
+            f"JARVISLABS_MODEL={ai_client.DEFAULT_JARVISLABS_MODEL}" in readme
+        )
+        assert (
+            f"JARVISLABS_MODEL={ai_client.DEFAULT_JARVISLABS_MODEL}" in env_example
+        )
 
     def test_env_example_documents_the_api_key(self):
         env_example = io.open(ROOT / ".env.example", encoding="utf-8").read()
-        assert "GEMINI_API_KEY=" in env_example
+        assert "JARVIS_API_TOKEN=" in env_example
+        assert "GEMINI_API_KEY=" not in env_example
+        assert "JARVISLABS_BASE_URL=" not in env_example
+        assert "JARVISLABS_MODEL_FALLBACKS=" not in env_example
 
     def test_requirements_no_longer_pull_local_inference(self):
         reqs = io.open(ROOT / "requirements.txt", encoding="utf-8").read()
@@ -564,3 +569,165 @@ class TestMissingDiagramRetry:
         assert ext.diagram is None
         assert telemetry["diagram_retry_error"]
         assert len(ext.notes) == 1
+
+
+class FakeJarvisClient:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def post(self, url, headers, json):
+        self.calls.append({"url": url, "headers": headers, "json": json})
+        result = self.responses.pop(0)
+        return httpx.Response(
+            result[0],
+            json=result[1],
+            request=httpx.Request("POST", url),
+        )
+
+
+class TestJarvisLabsProvider:
+    def jarvis_env(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "jarvislabs")
+        monkeypatch.setenv("JARVISLABS_API_KEY", "test-jarvis-key")
+        monkeypatch.setenv(
+            "JARVISLABS_BASE_URL",
+            "https://serverlessn.jarvislabs.net/openai/test-deployment/v1",
+        )
+        monkeypatch.setenv("JARVISLABS_MODEL", "gemma-4-26b-a4b-it")
+
+    def test_jarvislabs_is_the_runtime_default(self, monkeypatch):
+        monkeypatch.delenv("AI_PROVIDER", raising=False)
+        monkeypatch.delenv("JARVISLABS_MODEL", raising=False)
+        monkeypatch.setenv("JARVISLABS_API_KEY", "test-jarvis-key")
+        monkeypatch.setenv("JARVISLABS_BASE_URL", "https://example.test/openai/id/v1")
+        monkeypatch.setenv("JARVISLABS_MODEL_FALLBACKS", "other-model")
+        assert ai_client.provider() == "jarvislabs"
+        assert ai_client.model_id() == ai_client.DEFAULT_JARVISLABS_MODEL
+        assert ai_client.endpoint_url() == ai_client.DEFAULT_JARVISLABS_BASE_URL
+        assert ai_client.model_chain() == [ai_client.DEFAULT_JARVISLABS_MODEL]
+
+    def test_provider_cannot_be_switched_through_environment(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "gemini")
+        assert DEFAULT_PROVIDER() == "jarvislabs"
+
+    def test_image_and_prompt_are_sent_as_openai_vision_content(
+        self, image, monkeypatch
+    ):
+        self.jarvis_env(monkeypatch)
+        response_body = reply_json(
+            {
+                "title": "Jarvis Test",
+                "notes": [{"heading": "Diagram", "content": ["Alpha connects to Beta"]}],
+            }
+        )
+        client = FakeJarvisClient(
+            [(200, {"choices": [{"message": {"content": response_body}}]})]
+        )
+        monkeypatch.setattr(ai_client, "_get_client", lambda: client)
+
+        extraction, telemetry = ai_client.analyze(image, mode="notes")
+
+        sent = client.calls[0]
+        assert sent["url"].endswith("/chat/completions")
+        assert sent["headers"]["Authorization"] == "Bearer test-jarvis-key"
+        assert sent["json"]["model"] == "gemma-4-26b-a4b-it"
+        parts = sent["json"]["messages"][0]["content"]
+        assert parts[0]["type"] == "image_url"
+        assert parts[0]["image_url"]["url"].startswith("data:image/png;base64,")
+        assert parts[1]["type"] == "text"
+        assert "Output" in parts[1]["text"]
+        assert telemetry["provider_used"] == "jarvislabs"
+        assert telemetry["model_used"] == "gemma-4-26b-a4b-it"
+        assert extraction.title == "Jarvis Test"
+
+    def test_transient_jarvislabs_failures_are_retried(
+        self, image, monkeypatch, no_real_sleeps
+    ):
+        self.jarvis_env(monkeypatch)
+        client = FakeJarvisClient(
+            [
+                (503, {"error": {"message": "No GPUs available"}}),
+                (
+                    200,
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": reply_json(
+                                        {
+                                            "title": "T",
+                                            "notes": [
+                                                {
+                                                    "heading": "Diagram",
+                                                    "content": ["Alpha connects to Beta"],
+                                                }
+                                            ],
+                                        }
+                                    )
+                                }
+                            }
+                        ]
+                    },
+                ),
+            ]
+        )
+        monkeypatch.setattr(ai_client, "_get_client", lambda: client)
+
+        extraction, _telemetry = ai_client.analyze(image, mode="notes")
+
+        assert extraction.title == "T"
+        assert len(client.calls) == 2
+        assert no_real_sleeps == [1.0]
+
+    def test_empty_jarvislabs_response_is_retried_once(
+        self, image, monkeypatch, no_real_sleeps
+    ):
+        self.jarvis_env(monkeypatch)
+        recovered = reply_json(
+            {
+                "title": "Recovered",
+                "notes": [{"heading": "Diagram", "content": ["Alpha connects to Beta"]}],
+            }
+        )
+        client = FakeJarvisClient(
+            [
+                (200, {"choices": [{"message": {"content": ""}}]}),
+                (200, {"choices": [{"message": {"content": recovered}}]}),
+            ]
+        )
+        monkeypatch.setattr(ai_client, "_get_client", lambda: client)
+
+        extraction, _telemetry = ai_client.analyze(image, mode="notes")
+
+        assert extraction.title == "Recovered"
+        assert len(client.calls) == 2
+        assert no_real_sleeps == [1.0]
+
+    def test_bad_deployment_configuration_is_not_ready(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "jarvislabs")
+        monkeypatch.setenv("JARVISLABS_API_KEY", "test-jarvis-key")
+        monkeypatch.delenv("JARVISLABS_BASE_URL", raising=False)
+        assert ai_client.key_present() is True
+        assert ai_client.configured() is True
+
+    def test_jarvis_api_token_variable_is_supported(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "jarvislabs")
+        monkeypatch.delenv("JARVISLABS_API_KEY", raising=False)
+        monkeypatch.setenv("JARVIS_API_TOKEN", "jarvis-api-token")
+        assert ai_client.api_key() == "jarvis-api-token"
+
+    def test_connection_test_uses_jarvislabs_and_the_submitted_key(self, monkeypatch):
+        self.jarvis_env(monkeypatch)
+        client = FakeJarvisClient(
+            [(200, {"choices": [{"message": {"content": "pong"}}]})]
+        )
+        monkeypatch.setattr(ai_client, "_build_client", lambda key=None: client)
+
+        result = ai_client.test_api_key("submitted-jarvis-key")
+
+        assert result["ok"] is True
+        assert client.calls[0]["json"]["max_tokens"] >= 32
+        assert client.calls[0]["headers"]["Authorization"] == (
+            "Bearer submitted-jarvis-key"
+        )

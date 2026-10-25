@@ -1,5 +1,5 @@
 {
-  "name": "sightline",
+  "name": "samjho",
   "version": "1.0.0",
   "description": "**From messy thinking to structured knowledge.**",
   "main": "index.js",
@@ -11,16 +11,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rohan1252030019-netizen/scribble2structure.git"
+    "url": "git+https://github.com/connect4devops/Samjho.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/rohan1252030019-netizen/scribble2structure/issues"
+    "url": "https://github.com/connect4devops/Samjho/issues"
   },
-  "homepage": "https://github.com/rohan1252030019-netizen/scribble2structure#readme",
+  "homepage": "https://github.com/connect4devops/Samjho#readme",
   "dependencies": {
     "playwright": "^1.64.1"
   }

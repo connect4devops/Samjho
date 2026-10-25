@@ -1,6 +1,6 @@
-"""Scribble2Structure -- from messy thinking to structured knowledge.
+"""Samjho -- from messy thinking to structured knowledge.
 
-FastAPI app: validation, cloud Gemma inference via the Gemini API,
+FastAPI app: validation, cloud Gemma inference via JarvisLabs Serverless,
 transformation mode routing, sample gallery endpoint, structured knowledge
 responses, objective grading of the reconstruction, and the Settings screen
 where the API key is entered and tested.
@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 from . import ai_client, grading, prompts, settings, validation
 
 app = FastAPI(
-    title="Scribble2Structure",
+    title="Samjho",
     description="Turn handwritten notes, whiteboards, sketches, and diagrams into structured knowledge.",
 )
 
@@ -88,13 +88,15 @@ SAMPLES = [
 
 @app.get("/api/health")
 def health() -> JSONResponse:
-    ready = ai_client.key_present()
+    ready = ai_client.configured()
+    has_key = ai_client.key_present()
     return JSONResponse(
         {
             "status": "ok" if ready else "needs_key",
-            "api_key": "present" if ready else "missing",
+            "provider": ai_client.provider(),
+            "api_key": "present" if has_key else "missing",
+            "endpoint_configured": True,
             "model": ai_client.model_id(),
-            "model_chain": ai_client.model_chain(),
             "endpoint": ai_client.endpoint_url(),
             "modes": prompts.MODES,
             "supported_types": sorted(validation.ALLOWED_EXTENSIONS),
@@ -108,8 +110,10 @@ def health() -> JSONResponse:
 def config() -> dict:
     """Model, capability, and transformation mode info for the UI."""
     return {
+        "provider": ai_client.provider(),
         "model": ai_client.model_id(),
         "api_key_present": ai_client.key_present(),
+        "endpoint_configured": True,
         "endpoint": ai_client.endpoint_url(),
         "max_mb": validation.MAX_BYTES // (1024 * 1024),
         "supported": sorted(validation.ALLOWED_EXTENSIONS),
@@ -184,13 +188,12 @@ def _settings_status() -> dict:
     """What the Settings screen needs to show. Never the key itself."""
     key = ai_client.api_key()
     return {
+        "provider": ai_client.provider(),
         "api_key_present": bool(key),
         "api_key_masked": settings.mask_key(key),
-        "api_key_source": settings.key_source(),
+        "api_key_source": settings.key_source(ai_client.provider()),
         "model": ai_client.model_id(),
-        "model_chain": ai_client.model_chain(),
         "endpoint": ai_client.endpoint_url(),
-        "known_models": list(ai_client.KNOWN_MODELS),
         "store": settings.display_path(),
     }
 
@@ -223,7 +226,7 @@ def test_api_key(payload: ApiKeyRequest, request: Request) -> JSONResponse:
             status_code=429,
         )
 
-    problem = settings.validate_key_format(payload.api_key)
+    problem = settings.validate_key_format(payload.api_key, ai_client.provider())
     if problem:
         return JSONResponse(
             {
@@ -259,7 +262,7 @@ def save_api_key(payload: ApiKeyRequest, request: Request) -> JSONResponse:
             status_code=429,
         )
 
-    problem = settings.validate_key_format(payload.api_key)
+    problem = settings.validate_key_format(payload.api_key, ai_client.provider())
     if problem:
         return JSONResponse({"ok": False, "message": problem}, status_code=400)
 
@@ -268,7 +271,7 @@ def save_api_key(payload: ApiKeyRequest, request: Request) -> JSONResponse:
     if not result.get("ok"):
         return JSONResponse(result, status_code=502)
 
-    settings.save_key(key)
+    settings.save_key(key, ai_client.provider())
     # The cached client still holds the old key; drop it so the next request
     # uses the one that was just saved.
     ai_client.reset_client()
@@ -285,7 +288,7 @@ def delete_api_key(request: Request) -> JSONResponse:
     if refused is not None:
         return refused
 
-    settings.clear_key()
+    settings.clear_key(ai_client.provider())
     ai_client.reset_client()
     status = _settings_status()
     status["ok"] = True
@@ -327,8 +330,8 @@ async def analyze(
             status_code=504,
             detail=(
                 f"Analysis exceeded {budget}s and was abandoned. The upstream model was "
-                "too slow or unreachable. Try a smaller model via GEMMA_MODEL, set "
-                "GEMMA_MODEL_FALLBACKS so a saturated model is skipped sooner, or raise "
+                "too slow or unreachable. Check the JarvisLabs deployment status and "
+                "GPU capacity, review JARVISLABS_TIMEOUT_SECONDS, or raise "
                 "MAX_ANALYZE_SECONDS."
             ),
         ) from exc

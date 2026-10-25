@@ -1,4 +1,4 @@
-"""Generates realistic sample image assets for Scribble2Structure.
+"""Generates realistic sample image assets for Samjho.
 
 Generates 6 distinct test/sample images covering all required transformation modes:
 1. Handwritten machine learning notes (gradient descent, loss formula, regularization, margin uncertainty)

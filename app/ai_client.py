@@ -1,15 +1,15 @@
-"""Cloud inference client for Scribble2Structure -- Gemini API.
+"""Cloud inference client for Samjho.
 
 Handles:
-  1. Build one Gemini API client from the API key (module-level singleton).
+  1. Build the active provider's client from its API key (module-level singleton).
   2. Build a multimodal user turn from the uploaded image + mode prompt.
-  3. Call generate_content() on the configured model and read the reply.
+  3. Call the provider's generation API and read the reply.
   4. Walk a model chain, moving to the next model when one is saturated.
   5. Parse the JSON object out of the reply (with at most 1 corrective retry).
   6. Validate the Mermaid diagram (with at most 1 corrective retry).
   7. Normalize everything into an Extraction.
 
-The configured model defaults to ``gemini-2.5-flash-lite``. It may also be a
+The optional Gemini provider defaults to ``gemini-2.5-flash-lite``. It may also be a
 Gemma id (Gemma 3 4B/12B/27B, Gemma 4), which share the endpoint and accept
 images, so the request is built to the *safest common denominator* of both
 families rather than to the capabilities of whichever one is configured:
@@ -36,12 +36,14 @@ Images are sent inline as base64 in the request; nothing is written to disk.
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import time
 from threading import Lock
 from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 
 from . import diagram as diagram_mod
@@ -55,7 +57,24 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
+DEFAULT_JARVISLABS_MODEL = "gemma-4-26b-a4b-it"
+DEFAULT_JARVISLABS_BASE_URL = (
+    "https://serverlessn.jarvislabs.net/"
+    "openai/01M5SAH4W3C0ENK0XHP4EHS06D/v1"
+)
 DEFAULT_MODEL = "gemini-2.5-flash-lite"
+
+KNOWN_MODELS = (
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemma-3-27b-it",
+    "gemma-3-12b-it",
+    "gemma-3-4b-it",
+    "gemma-4-26b-a4b-it",
+)
+
+DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com"
+DEFAULT_API_VERSION = "v1beta"
 
 # Vision-capable ids served by the Gemini API, Gemini first. The env var is
 # named GEMMA_MODEL for continuity, but any of these may be set there.
@@ -129,16 +148,13 @@ def _float_env(name: str) -> float | None:
 
 
 def api_key() -> str:
-    """The Gemini API key.
+    """The active provider's API key."""
+    return settings.api_key(provider())
 
-    The key saved in the Settings screen wins; otherwise the documented
-    environment variable is used, with the two aliases accepted because that
-    is what the Google tooling and most .env templates write.
-    """
-    stored = settings.stored_key()
-    if stored:
-        return stored
-    return _env("GEMINI_API_KEY") or _env("GOOGLE_API_KEY") or _env("GEMINI_KEY")
+
+def provider() -> str:
+    """The only supported inference provider."""
+    return "jarvislabs"
 
 
 def reset_client() -> None:
@@ -154,39 +170,55 @@ def reset_client() -> None:
 
 
 def model_id() -> str:
-    """The configured model, falling back to the shipped default."""
+    """The model served by the configured JarvisLabs endpoint."""
+    if provider() == "jarvislabs":
+        return _env("JARVISLABS_MODEL") or DEFAULT_JARVISLABS_MODEL
     return _env("GEMMA_MODEL") or _env("GEMINI_MODEL") or DEFAULT_MODEL
 
 
 def model_chain() -> list[str]:
-    """The configured model followed by any opt-in fallbacks, deduplicated.
-
-    GEMMA_MODEL_FALLBACKS is a comma-separated list of ids tried in order when
-    the primary is saturated, rate-limited, or missing. It is empty by default
-    so a failure is reported rather than silently answered by a smaller model.
-    """
-    chain: list[str] = []
-    for candidate in [model_id(), *_env("GEMMA_MODEL_FALLBACKS").split(",")]:
-        name = candidate.strip()
-        if name and name not in chain:
-            chain.append(name)
+    """Return the configured model only; model fallback is disabled."""
+    chain = [model_id()]
+    if provider() == "gemini":
+        for candidate in _env("GEMMA_MODEL_FALLBACKS").split(","):
+            name = candidate.strip()
+            if name and name not in chain:
+                chain.append(name)
     return chain
 
 
 def endpoint_url() -> str:
-    """The API base URL this client talks to, for /api/health and /api/config."""
+    """The fixed JarvisLabs Serverless endpoint for this deployment."""
+    if provider() == "jarvislabs":
+        return DEFAULT_JARVISLABS_BASE_URL
     base = _env("GEMINI_BASE_URL") or DEFAULT_BASE_URL
     version = _env("GEMINI_API_VERSION") or DEFAULT_API_VERSION
     return f"{base.rstrip('/')}/{version.strip('/')}"
 
 
 def key_present() -> bool:
-    """True when inference can run: a Gemini API key is set."""
+    """True when the active provider's API key is present."""
     return bool(api_key())
+
+
+def configured() -> bool:
+    """True when the JarvisLabs API token is present."""
+    return key_present()
 
 
 def max_output_tokens() -> int:
     return _int_env("GEMMA_MAX_OUTPUT_TOKENS", MAX_OUTPUT_TOKENS)
+
+
+def _jarvis_timeout_seconds() -> int:
+    return max(5, _int_env("JARVISLABS_TIMEOUT_SECONDS", 120))
+
+
+def _jarvis_max_output_tokens() -> int:
+    value = _int_env("JARVISLABS_MAX_OUTPUT_TOKENS", 4096)
+    if value < 1:
+        raise ConfigurationError("JARVISLABS_MAX_OUTPUT_TOKENS must be positive.")
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -242,14 +274,35 @@ _client_error: str | None = None
 
 
 def _build_client(key: str | None = None):
-    """Construct a Gemini API client bound to the configured key and endpoint."""
+    """Construct the active provider's client bound to the configured key."""
+    active_provider = provider()
     key = key if key is not None else api_key()
     if not key:
+        if active_provider == "jarvislabs":
+            raise ConfigurationError(
+                "No JarvisLabs API key is set. Add JARVIS_API_TOKEN or "
+                "JARVISLABS_API_KEY to your .env file, or paste the key in Settings."
+            )
         raise ConfigurationError(
             "No Gemini API key is set. Open Settings in the app and paste your key, "
             "or add GEMINI_API_KEY to your .env file "
             "(create one at https://aistudio.google.com/apikey)."
         )
+
+    if active_provider == "jarvislabs":
+        if not endpoint_url():
+            raise ConfigurationError(
+                "JARVISLABS_BASE_URL is not set. Copy the OpenAI base URL from your "
+                "JarvisLabs Serverless deployment."
+            )
+        try:
+            return httpx.Client(
+                timeout=float(_jarvis_timeout_seconds())
+            )
+        except (TypeError, ValueError) as exc:
+            raise ConfigurationError(
+                "JARVISLABS_TIMEOUT_SECONDS must be a positive number."
+            ) from exc
 
     try:
         from google import genai
@@ -292,7 +345,9 @@ def _get_client():
     global _client, _client_error
 
     if _client_error is not None:
-        raise InferenceError(f"Gemini API client failed to initialize: {_client_error}")
+        raise InferenceError(
+            f"{provider()} API client failed to initialize: {_client_error}"
+        )
     if _client is not None:
         return _client
 
@@ -301,7 +356,7 @@ def _get_client():
             return _client
         if _client_error is not None:
             raise InferenceError(
-                f"Gemini API client failed to initialize: {_client_error}"
+                f"{provider()} API client failed to initialize: {_client_error}"
             )
         try:
             _client = _build_client()
@@ -311,7 +366,7 @@ def _get_client():
         except InferenceError as exc:
             _client_error = str(exc)[:400]
             raise
-        logger.info("Gemini API client ready. Endpoint: %s", endpoint_url())
+        logger.info("%s API client ready. Endpoint: %s", provider(), endpoint_url())
         return _client
 
 
@@ -385,6 +440,9 @@ def _classify(exc: BaseException) -> InferenceError:
 
 def _call_once(model: str, contents: list[Any], config: Any) -> str:
     """One generate_content() call, returning the reply text."""
+    if provider() == "jarvislabs":
+        return _call_jarvislabs(model, contents, config)
+
     client = _get_client()
     try:
         response = client.models.generate_content(
@@ -395,6 +453,153 @@ def _call_once(model: str, contents: list[Any], config: Any) -> str:
     except Exception as exc:
         raise _classify(exc) from exc
     return _response_text(response, model)
+
+
+def _jarvis_messages(contents: list[Any]) -> list[dict[str, Any]]:
+    """Convert the shared request parts to OpenAI-compatible chat messages."""
+    messages: list[dict[str, Any]] = []
+    for content in contents:
+        parts: list[dict[str, Any]] = []
+        for part in getattr(content, "parts", None) or []:
+            inline = getattr(part, "inline_data", None)
+            if inline is not None:
+                raw = inline.data
+                if isinstance(raw, str):
+                    encoded = raw
+                else:
+                    encoded = base64.b64encode(raw).decode("ascii")
+                parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{inline.mime_type};base64,{encoded}"
+                        },
+                    }
+                )
+            text = getattr(part, "text", None)
+            if text:
+                parts.append({"type": "text", "text": text})
+        messages.append(
+            {
+                "role": getattr(content, "role", None) or "user",
+                "content": parts,
+            }
+        )
+    return messages
+
+
+def _jarvis_response_text(response: httpx.Response, model: str) -> str:
+    """Validate and extract the first OpenAI-compatible chat choice."""
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise InferenceError(
+            "JarvisLabs returned a response that was not valid JSON."
+        ) from exc
+
+    try:
+        content = payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise InferenceError(
+            "JarvisLabs returned an incomplete chat completion response."
+        ) from exc
+
+    if isinstance(content, str):
+        text = content.strip()
+    elif isinstance(content, list):
+        text = "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and isinstance(block.get("text"), str)
+        ).strip()
+    else:
+        text = ""
+    if not text:
+        raise ModelUnavailable(
+            f"The model returned an empty response while using '{model}'.",
+            retryable=True,
+            max_attempts=2,
+        )
+    return text
+
+
+def _call_jarvislabs(model: str, contents: list[Any], config: Any) -> str:
+    """Send a multimodal chat completion to a JarvisLabs Serverless deployment."""
+    client = _get_client()
+    base = endpoint_url()
+    token = api_key()
+    if not base:
+        raise ConfigurationError(
+            "JARVISLABS_BASE_URL is not set. Copy the OpenAI base URL from your "
+            "JarvisLabs Serverless deployment."
+        )
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": _jarvis_messages(contents),
+        "max_tokens": _jarvis_max_output_tokens(),
+    }
+    for option in ("temperature", "top_p"):
+        value = getattr(config, option, None)
+        if value is not None:
+            body[option] = value
+
+    try:
+        response = client.post(
+            f"{base}/chat/completions",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body,
+        )
+        response.raise_for_status()
+    except httpx.TimeoutException as exc:
+        raise ModelUnavailable(
+            f"JarvisLabs inference timed out after "
+            f"{_jarvis_timeout_seconds()}s.",
+            retryable=True,
+            max_attempts=2,
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        try:
+            detail = exc.response.json().get("error", {}).get("message", "")
+        except (ValueError, AttributeError):
+            detail = ""
+        if not isinstance(detail, str):
+            detail = ""
+        detail = detail.replace(token, "[redacted]").strip()
+        if status in (401, 403):
+            raise InferenceError(
+                "JarvisLabs rejected the API key. Check JARVIS_API_TOKEN or "
+                "JARVISLABS_API_KEY."
+            ) from exc
+        if status == 404:
+            raise InferenceError(
+                "JarvisLabs deployment was not found or is not running. Check "
+                "JARVISLABS_BASE_URL and deployment status."
+            ) from exc
+        if status == 400:
+            raise InferenceError(
+                "JarvisLabs rejected the request. Confirm the deployed model ID and "
+                "that its framework supports image input."
+                + (f" Details: {detail[:200]}" if detail else "")
+            ) from exc
+        if status in (408, 429, 500, 502, 503, 504):
+            raise ModelUnavailable(
+                detail[:300] or f"JarvisLabs returned HTTP {status}.",
+                retryable=True,
+                max_attempts=2 if status == 408 else None,
+            ) from exc
+        raise InferenceError(
+            f"JarvisLabs request failed with HTTP {status}."
+            + (f" Details: {detail[:200]}" if detail else "")
+        ) from exc
+    except httpx.RequestError as exc:
+        raise ModelUnavailable(
+            f"Could not reach the JarvisLabs deployment: {str(exc)[:200]}",
+            retryable=True,
+            max_attempts=2,
+        ) from exc
+
+    return _jarvis_response_text(response, model)
 
 
 def _response_text(response: Any, model: str) -> str:
@@ -679,6 +884,7 @@ def test_api_key(key: str, model: str | None = None) -> dict:
     Returns {"ok", "message", "model", "elapsed_ms"}.
     """
     target = model or model_id()
+    active_provider = provider()
     started = time.perf_counter()
     try:
         client = _build_client(key)
@@ -686,6 +892,50 @@ def test_api_key(key: str, model: str | None = None) -> dict:
         return {
             "ok": False,
             "message": str(exc),
+            "model": target,
+            "elapsed_ms": int((time.perf_counter() - started) * 1000),
+        }
+
+    if active_provider == "jarvislabs":
+        try:
+            response = client.post(
+                f"{endpoint_url()}/chat/completions",
+                headers={"Authorization": f"Bearer {key}"},
+                json={
+                    "model": target,
+                    "messages": [{"role": "user", "content": "Reply with: pong"}],
+                    "max_tokens": 64,
+                },
+            )
+            response.raise_for_status()
+            _jarvis_response_text(response, target)
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in (401, 403):
+                message = "JarvisLabs rejected that API key. Check the API key in your account settings."
+            elif status == 404:
+                message = (
+                    "The JarvisLabs deployment was not found or is not running. "
+                    "Check its status and base URL."
+                )
+            else:
+                message = f"JarvisLabs connection test failed with HTTP {status}."
+            return {
+                "ok": False,
+                "message": message,
+                "model": target,
+                "elapsed_ms": int((time.perf_counter() - started) * 1000),
+            }
+        except (httpx.RequestError, InferenceError) as exc:
+            return {
+                "ok": False,
+                "message": str(exc)[:300],
+                "model": target,
+                "elapsed_ms": int((time.perf_counter() - started) * 1000),
+            }
+        return {
+            "ok": True,
+            "message": f"The JarvisLabs API key works. '{target}' answered the test request.",
             "model": target,
             "elapsed_ms": int((time.perf_counter() - started) * 1000),
         }
@@ -848,12 +1098,14 @@ def _record_model(telemetry: dict, model_used: str, fallbacks: list[str]) -> Non
 def analyze(
     image: validation.ValidatedImage, mode: str = "auto"
 ) -> tuple[validation.Extraction, dict]:
-    """Run a full extraction using cloud inference via the Gemini API.
+    """Run a full extraction using the configured cloud inference provider.
 
     Returns (extraction, telemetry).
     """
     chain = model_chain()
     telemetry: dict = {
+        "provider": provider(),
+        "provider_used": provider(),
         "model": chain[0],
         "model_chain": chain,
         "model_used": chain[0],

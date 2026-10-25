@@ -46,9 +46,9 @@ def test_no_stale_model_as_a_configured_default():
         assert "SmolVLM" not in text
         assert "Qwen" not in text
     env_example = io.open(ROOT / ".env.example", encoding="utf-8").read()
-    assert ai_client.DEFAULT_MODEL in env_example
-    assert "GEMMA_MODEL=" in env_example
-    assert "GEMINI_API_KEY=" in env_example
+    assert ai_client.DEFAULT_JARVISLABS_MODEL in env_example
+    assert "JARVISLABS_MODEL=" in env_example
+    assert "JARVIS_API_TOKEN=" in env_example
 
 
 def test_no_local_inference_copy_survives(html: str):
@@ -64,9 +64,9 @@ def test_no_local_inference_copy_survives(html: str):
         assert stale not in html, f"stale local-inference copy: {stale!r}"
 
 
-def test_key_banner_points_at_google_ai_studio(html: str):
-    assert "GEMINI_API_KEY" in html
-    assert "aistudio.google.com/apikey" in html
+def test_key_banner_points_at_jarvislabs(html: str):
+    assert "JARVISLABS_API_KEY" in html
+    assert "jarvislabs.ai/settings/api-keys" in html
     assert '<span id="modelTag">loading…</span>' in html
 
 

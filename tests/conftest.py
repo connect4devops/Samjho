@@ -98,13 +98,17 @@ def isolated_key_store(monkeypatch, tmp_path):
     on the developer's machine would leak into the suite and change what
     ``api_key()`` returns.
     """
-    monkeypatch.setenv("SCRIBBLE2STRUCTURE_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("SAMJHO_HOME", str(tmp_path / "store"))
     return tmp_path / "store"
 
 
 @pytest.fixture(autouse=True)
 def api_key(monkeypatch):
     """A key is present unless a test removes it."""
+    monkeypatch.setenv("AI_PROVIDER", "gemini")
+    monkeypatch.setattr(
+        ai_client, "provider", lambda: ai_client._env("AI_PROVIDER") or "jarvislabs"
+    )
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
     monkeypatch.setenv("GEMMA_MODEL", ai_client.DEFAULT_MODEL)
     monkeypatch.setenv("GEMMA_MODEL_FALLBACKS", "")
