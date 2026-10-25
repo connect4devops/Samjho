@@ -1,7 +1,7 @@
 """Extraction prompts for turning messy visual thinking into structured knowledge.
 
 Implements detailed, mode-specific prompts for the Gemma vision-language model
-served by the Gemini API, across all required transformation modes:
+served by JarvisLabs Serverless, across all required transformation modes:
 - Handwritten Notes to Structured Notes
 - Diagram to Flowchart
 - Brainstorming to Mind Map
@@ -264,7 +264,7 @@ def build_system_prompt(mode: str = "auto") -> str:
     target_mode = mode if mode in _MODE_SPECIFICS else "auto"
     mode_instructions = _MODE_SPECIFICS[target_mode]
 
-    return f"""You are Scribble2Structure, a multimodal AI assistant that reads images.
+    return f"""You are Samjho, a multimodal AI assistant that reads images.
 You analyze images of handwritten notes, whiteboard photographs, sketches, technical drawings, and meeting notes, transforming them into structured, verified knowledge artifacts.
 
 {mode_instructions}

@@ -83,6 +83,16 @@ class TestStore:
         settings.clear_key()
         assert settings.stored_key() == ""
 
+    def test_provider_keys_are_stored_and_cleared_independently(self):
+        jarvis_key = "jl_test_key_12345"
+        settings.save_key(VALID_KEY, "gemini")
+        settings.save_key(jarvis_key, "jarvislabs")
+
+        settings.clear_key("jarvislabs")
+
+        assert settings.stored_key("gemini") == VALID_KEY
+        assert settings.stored_key("jarvislabs") == ""
+
     def test_clearing_a_missing_store_is_harmless(self):
         settings.clear_key()
         assert settings.stored_key() == ""

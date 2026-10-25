@@ -1,10 +1,9 @@
-"""Where the Gemini API key lives, and how it is handled.
+"""Where inference API keys live, and how they are handled.
 
-The key can come from three places, in this order:
+The active provider's key can come from these sources, in order:
 
-1. the store written by the Settings screen (``.scribble2structure/``),
-2. ``GEMINI_API_KEY`` in the environment or ``.env``,
-3. the ``GOOGLE_API_KEY`` / ``GEMINI_KEY`` aliases.
+1. the store written by the Settings screen (``.samjho/``),
+2. the provider-specific environment variable in ``.env``.
 
 The store wins because it is the most recent, deliberate action: if someone
 pastes a key into Settings, that is the key the app should use, not one left
@@ -27,13 +26,25 @@ from pathlib import Path
 # Google AI Studio keys are 39 characters and start with AIza. Other
 # deployments (proxies, Vertex, emulator) use other shapes, so the format
 # check is a sanity check, not a whitelist.
-_KEY_RE = re.compile(r"^[A-Za-z0-9_\-\.]{20,200}$")
+_KEY_RE = re.compile(r"^[A-Za-z0-9_\-\.]{1,500}$")
 
-_MIN_LENGTH = 20
-_MAX_LENGTH = 200
+_GEMINI_MIN_LENGTH = 20
+_GEMINI_MAX_LENGTH = 200
+_MAX_LENGTH = 500
 
-_HOME_ENV = "SCRIBBLE2STRUCTURE_HOME"
-_STORE_DIRNAME = ".scribble2structure"
+_PROVIDER_KEYS = {
+    "jarvislabs": (
+        "jarvislabs_api_key",
+        ("JARVISLABS_API_KEY", "JARVIS_API_TOKEN"),
+    ),
+    "gemini": (
+        "gemini_api_key",
+        ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_KEY"),
+    ),
+}
+
+_HOME_ENV = "SAMJHO_HOME"
+_STORE_DIRNAME = ".samjho"
 _STORE_FILENAME = "credentials.json"
 
 
@@ -75,7 +86,7 @@ def mask_key(key: str) -> str:
     return f"{text[:4]}{'*' * max(4, len(text) - 8)}{text[-4:]}"
 
 
-def validate_key_format(key: str) -> str | None:
+def validate_key_format(key: str, provider: str = "gemini") -> str | None:
     """Check a key's shape. Returns an error message, or None when it is fine.
 
     This is a cheap sanity check performed before a network call, so an
@@ -86,20 +97,21 @@ def validate_key_format(key: str) -> str | None:
         return "The API key must be text."
     text = key.strip()
     if not text:
-        return "Enter your Gemini API key."
+        return f"Enter your {provider} API key."
     if any(char.isspace() for char in text):
         return "The API key contains a space or a line break. Paste the key only."
-    if len(text) < _MIN_LENGTH:
+    minimum = _GEMINI_MIN_LENGTH if provider == "gemini" else 1
+    maximum = _GEMINI_MAX_LENGTH if provider == "gemini" else _MAX_LENGTH
+    if len(text) < minimum:
         return (
-            f"That key is only {len(text)} characters long. A Gemini API key is "
-            f"about {_MIN_LENGTH} characters or more."
+            f"That key is only {len(text)} characters long. "
+            f"At least {minimum} characters are required."
         )
-    if len(text) > _MAX_LENGTH:
-        return "That key is too long to be a Gemini API key."
+    if len(text) > maximum:
+        return "That API key is too long."
     if not _KEY_RE.match(text):
         return (
-            "That key contains characters a Gemini API key never has. Copy it again "
-            "from Google AI Studio."
+            "That API key contains unsupported characters. Paste the key only."
         )
     return None
 
@@ -117,17 +129,21 @@ def _read_store() -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def stored_key() -> str:
+def stored_key(provider: str = "gemini") -> str:
     """The key saved through the Settings screen, if any."""
-    value = _read_store().get("gemini_api_key")
+    store_key, _ = _PROVIDER_KEYS.get(provider, _PROVIDER_KEYS["gemini"])
+    value = _read_store().get(store_key)
     return value.strip() if isinstance(value, str) else ""
 
 
-def save_key(key: str) -> None:
+def save_key(key: str, provider: str = "gemini") -> None:
     """Persist the key locally, readable only by this user."""
     path = store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps({"gemini_api_key": key.strip()}, indent=2)
+    store_key, _ = _PROVIDER_KEYS.get(provider, _PROVIDER_KEYS["gemini"])
+    data = _read_store()
+    data[store_key] = key.strip()
+    payload = json.dumps(data, indent=2)
     # Create with restrictive permissions where the OS supports them.
     path.write_text(payload, encoding="utf-8")
     try:
@@ -138,33 +154,43 @@ def save_key(key: str) -> None:
         pass
 
 
-def clear_key() -> None:
+def clear_key(provider: str = "gemini") -> None:
     """Forget the saved key."""
+    path = store_path()
     try:
-        store_path().unlink()
+        data = _read_store()
+        store_key, _ = _PROVIDER_KEYS.get(provider, _PROVIDER_KEYS["gemini"])
+        data.pop(store_key, None)
+        if data:
+            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        else:
+            path.unlink()
     except FileNotFoundError:
         return
     except OSError:
         pass
 
 
-def api_key() -> str:
+def api_key(provider: str = "gemini") -> str:
     """The key the app should use, from any of the supported sources."""
-    stored = stored_key()
+    stored = stored_key(provider)
     if stored:
         return stored
-    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_KEY"):
+    _, env_names = _PROVIDER_KEYS.get(provider, _PROVIDER_KEYS["gemini"])
+    for name in env_names:
         value = (os.getenv(name) or "").strip()
         if value:
             return value
     return ""
 
 
-def key_source() -> str:
+def key_source(provider: str = "gemini") -> str:
     """Where the active key came from: ``store``, ``environment`` or ``none``."""
-    if stored_key():
+    if stored_key(provider):
         return "store"
-    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_KEY"):
-        if (os.getenv(name) or "").strip():
-            return "environment"
-    return "none"
+    _, env_names = _PROVIDER_KEYS.get(provider, _PROVIDER_KEYS["gemini"])
+    return (
+        "environment"
+        if any((os.getenv(name) or "").strip() for name in env_names)
+        else "none"
+    )

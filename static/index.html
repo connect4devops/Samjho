@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Scribble2Structure</title>
+<title>Samjho</title>
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -247,7 +247,7 @@ padding:6px;box-shadow:0 12px 32px rgba(20,22,28,.1);display:flex;flex-direction
 <body>
 
 <header>
-  <div class="logo">Scribble<i>2</i>Structure</div>
+  <div class="logo">Samjho</div>
   <div class="status">
     <span id="modelTag">loading…</span>
     <span class="pill" id="tokenTag">Model ready</span>
@@ -304,7 +304,7 @@ padding:6px;box-shadow:0 12px 32px rgba(20,22,28,.1);display:flex;flex-direction
       <div id="samplesGrid"></div>
     </div>
 
-    <p class="fine">Images are sent to Google's Gemini API and analysed in the cloud by <span id="modelFootnote">a vision-language model</span>. Check the results before relying on them.</p>
+    <p class="fine">Images are sent to the fixed JarvisLabs cloud endpoint and analysed by <span id="modelFootnote">a vision-language model</span>. Check the results before relying on them.</p>
   </aside>
 
   <section class="work" id="workSection">
@@ -327,7 +327,7 @@ padding:6px;box-shadow:0 12px 32px rgba(20,22,28,.1);display:flex;flex-direction
     <div class="sheet-head">
       <div>
         <h2 id="settingsTitle">Settings</h2>
-        <p>Connect the app to the Gemini API with your own key.</p>
+        <p>Connect the app to JarvisLabs Serverless with your own API key.</p>
       </div>
       <button class="sheet-close" id="settingsClose" aria-label="Close settings">&times;</button>
     </div>
@@ -338,15 +338,15 @@ padding:6px;box-shadow:0 12px 32px rgba(20,22,28,.1);display:flex;flex-direction
     </div>
 
     <div class="field">
-      <label for="apiKeyInput">Gemini API key</label>
+      <label for="apiKeyInput">JarvisLabs API key</label>
       <div class="keyrow">
         <input class="input" id="apiKeyInput" type="password" autocomplete="off" spellcheck="false"
-               placeholder="AIza…" aria-describedby="keyHint" />
+               placeholder="Paste your JarvisLabs API key" aria-describedby="keyHint" />
         <button class="btn sm" id="revealKeyBtn" type="button" aria-label="Show the key">Show</button>
       </div>
-      <p class="hint" id="keyHint">Get one free at
-        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.
-        The key is tested against the API before it is saved, and it never comes back to this page.</p>
+      <p class="hint" id="keyHint">Create a key in
+        <a href="https://jarvislabs.ai/settings/api-keys" target="_blank" rel="noopener">JarvisLabs API settings</a>.
+        The key is tested against your deployment before it is saved, and it never comes back to this page.</p>
     </div>
 
     <div class="msg" id="keyMsg" role="status"></div>
@@ -382,6 +382,23 @@ mermaid.initialize({startOnLoad:false, securityLevel:"strict", theme:"neutral",
 let selectedFile = null, originalResult = null, currentResult = null;
 let activeTab = "notes", hasUnsavedEdits = false, showSideBySide = false;
 let configData = {}, mermaidRenderCount = 0;
+const PROVIDER_COPY = {
+  name: "JarvisLabs",
+  key: "JarvisLabs API key",
+  placeholder: "Paste your JarvisLabs API key",
+  link: "https://jarvislabs.ai/settings/api-keys",
+  linkText: "JarvisLabs API settings",
+  keyEnv: "JARVISLABS_API_KEY"
+};
+function updateProviderCopy(){
+  const copy = PROVIDER_COPY;
+  $("settingsTitle").textContent = "Settings";
+  $("settingsSheet").querySelector(".sheet-head p").textContent =
+    `Connect the app to ${copy.name} with your own API key.`;
+  $("apiKeyInput").placeholder = copy.placeholder;
+  $("apiKeyInput").closest(".field").querySelector("label").textContent = copy.key;
+  $("keyHint").innerHTML = `Create a key in <a href="${copy.link}" target="_blank" rel="noopener">${copy.linkText}</a>. The key is tested against your configured endpoint before it is saved, and it never comes back to this page.`;
+}
 
 function toast(msg){
   const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
@@ -395,6 +412,7 @@ function banner(kind, html){
 // Config and samples
 fetch("/api/config").then(r => r.json()).then(c => {
   configData = c;
+  updateProviderCopy();
   if (c.model) {
     $("modelTag").textContent = c.model;
     if ($("modelFootnote")) $("modelFootnote").textContent = c.model;
@@ -402,7 +420,8 @@ fetch("/api/config").then(r => r.json()).then(c => {
   if (c.max_mb) $("maxMb").textContent = c.max_mb;
   if (!c.api_key_present) {
     $("tokenTag").textContent = "API key missing"; $("tokenTag").className = "pill token-warn";
-    banner("warn", `<strong>No Gemini API key.</strong><span>Add it in <button class="btn sm" id="bannerSettingsBtn">Settings</button>, or set <code>GEMINI_API_KEY</code> in your <code>.env</code> file. Keys are free at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</span>`);
+    const copy = PROVIDER_COPY;
+    banner("warn", `<strong>No ${esc(copy.name)} API key.</strong><span>Add it in <button class="btn sm" id="bannerSettingsBtn">Settings</button>, or set <code>${esc(copy.keyEnv)}</code> in your <code>.env</code> file.</span>`);
   }
 }).catch(() => {});
 
@@ -456,6 +475,7 @@ function keyResult(result){
 
 function paintSettings(s){
   settingsState = s;
+  updateProviderCopy();
   const present = !!(s && s.api_key_present);
   $("keyDot").className = "dot" + (present ? "" : " off");
   const source = s && s.api_key_source;
@@ -534,9 +554,10 @@ async function postKey(path, key){
 
 $("testKeyBtn").onclick = async () => {
   const key = $("apiKeyInput").value.trim();
-  if (!key){ keyMessage("bad", "Paste your Gemini API key first."); return; }
+  const copy = PROVIDER_COPY;
+  if (!key){ keyMessage("bad", `Paste your ${copy.name} API key first.`); return; }
   $("testKeyBtn").disabled = true;
-  keyMessage("busy", "Testing the key against the Gemini API…");
+  keyMessage("busy", `Testing the key against ${copy.name}…`);
   try {
     const {status, data} = await postKey("/api/settings/api-key/test", key);
     if (status === 200 && data.ok){
@@ -554,7 +575,8 @@ $("testKeyBtn").onclick = async () => {
 
 $("saveKeyBtn").onclick = async () => {
   const key = $("apiKeyInput").value.trim();
-  if (!key){ keyMessage("bad", "Paste your Gemini API key first."); return; }
+  const copy = PROVIDER_COPY;
+  if (!key){ keyMessage("bad", `Paste your ${copy.name} API key first.`); return; }
   $("saveKeyBtn").disabled = true;
   keyMessage("busy", "Testing the key, then saving it on this machine…");
   try {
@@ -634,7 +656,7 @@ $("runBtn").onclick = async () => {
   $("runBtn").disabled = true;
   $("runBtn").innerHTML = `<span class="spinner"></span>Analyzing…`;
   $("out").innerHTML = `<div class="loading"><span class="spinner"></span><strong>Reading your image…</strong>
-    <div>Calling the Gemini API. A slow model can take a couple of minutes.</div>
+    <div>Calling the configured cloud model. A slow deployment can take a couple of minutes.</div>
     <div class="elapsed" id="elapsed">0.0s</div>
     <button class="btn sm" id="cancelBtn" style="margin-top:14px">Cancel</button></div>`;
 
@@ -922,7 +944,7 @@ function mountExports(){
 }
 
 function generateMarkdown(d){
-  const L = [`# ${d.title}`, "", `*Made with Scribble2Structure using ${d.telemetry?.model || "a vision-language model"}*`, ""];
+  const L = [`# ${d.title}`, "", `*Made with Samjho using ${d.telemetry?.model || "a vision-language model"}*`, ""];
   if (d.assessment && d.assessment.score !== undefined){
     L.push(`> **Fidelity grade: ${d.assessment.score}/100 (${d.assessment.confidence})**`, "> ", `> ${d.assessment.rationale || ""}`, "");
     (d.assessment.criteria || []).forEach(c => L.push(`> - ${c.criterion}: ${c.score}/100 (${c.verdict}) — ${c.evidence}`));
@@ -1134,7 +1156,7 @@ function planCard(d){
   });
 
   add({ type: "foot", lines: [
-    "Made with Scribble2Structure" + (d.telemetry && d.telemetry.model ? " · " + d.telemetry.model : ""),
+    "Made with Samjho" + (d.telemetry && d.telemetry.model ? " · " + d.telemetry.model : ""),
     "AI output — verify before use.",
   ], font: fFoot, gap: 0 });
 

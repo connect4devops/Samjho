@@ -1,17 +1,15 @@
-# Scribble2Structure
+# Samjho
 
 **From messy visual thinking to structured, editable knowledge.**
 
-Scribble2Structure turns handwritten notes, whiteboard photographs, brainstorming
-sketches, technical system drawings and meeting notes into structured artifacts with
-rendered Mermaid diagrams, verifiable action plans and multi-format exports.
+Samjho turns handwritten notes, whiteboard photographs, brainstorming sketches, technical
+system drawings and meeting notes into structured artifacts with rendered Mermaid
+diagrams, verifiable action plans and multi-format exports.
 
-Inference runs in the cloud through the **Gemini API** (Google AI Studio), defaulting to
-**`gemini-2.5-flash-lite`** — Google's cheapest, fastest multimodal model, recommended for
-high-volume data extraction. There is no model to download, no GPU, and no VRAM to budget.
-A single API key plus a `GEMMA_MODEL` value in `.env` are the whole setup — or paste the key
-into the app's **Settings** screen and it is tested and saved for you. Your uploaded
-images are sent to Google's servers to be analysed, so this is **not** an offline tool.
+By default, cloud inference runs through **JarvisLabs Serverless** using the
+OpenAI-compatible API and the vision-capable **Gemma 4 26B A4B Instruct** model. The GPU runs
+in the JarvisLabs deployment; Samjho sends image and prompt data to the fixed endpoint
+and receives a structured response. This is not local or offline inference.
 
 ---
 
@@ -20,19 +18,17 @@ images are sent to Google's servers to be analysed, so this is **not** an offlin
 The **Settings** button in the header opens a panel where the API key can be entered,
 tested and saved without touching a file or restarting anything.
 
-- **Test connection** sends one minimal request with the key you pasted. A key that is
-  wrong, expired or belongs to a project without the Gemini API enabled comes back as a
-  plain explanation, not a stack trace. The key is checked for shape first, so a pasted
-  sentence costs no request.
+- **Test connection** sends a minimal request to the configured JarvisLabs deployment. A
+  rejected key, missing deployment, or unavailable endpoint returns an actionable message.
 - **Save key** tests it first and only stores it if the test passed, so a broken key can
   never be saved by accident.
 - **Remove key** deletes it.
 
 How the key is handled:
 
-- It is **write-only**. The API never returns it — the Settings screen shows a masked form
-  (`AIza…abcd`) and nothing else, and the browser never receives the key after saving.
-- It is stored **on this machine only**, in `.scribble2structure/credentials.json`, created
+- It is **write-only**. The API never returns it — the Settings screen shows only a masked
+  form, and the browser never receives the key after saving.
+- It is stored **on this machine only**, in `.samjho/credentials.json`, created
   with owner-only permissions and gitignored.
 - A key saved in Settings **takes precedence** over one in `.env`, because it is the more
   recent deliberate action.
@@ -50,76 +46,29 @@ API client is rebuilt so it cannot keep sending the old key.
 
 ---
 
-## Choosing a model
+## Inference provider and model
 
-`GEMMA_MODEL` accepts any vision-capable id the Gemini API serves — Gemini or Gemma. The
-name is historical; both families work from the same codebase, and picking one is a
-quality/latency/cost tradeoff, nothing more.
+Samjho uses JarvisLabs Serverless exclusively. The endpoint is fixed to the project
+deployment, and `JARVISLABS_MODEL` must match its model identifier (the default is
+`gemma-4-26b-a4b-it`). There are no provider or model fallbacks: model and deployment
+errors are returned to the user rather than silently switching models. Responses report
+`provider_used` and `model_used` in telemetry.
 
-| `GEMMA_MODEL` | Family | Image input | Notes |
-| --- | --- | --- | --- |
-| `gemini-2.5-flash-lite` *(default)* | Gemini | yes | Cheapest and fastest; the API's recommendation for high-volume extraction. Thinking is off by default on this size. |
-| `gemini-2.5-flash` | Gemini | yes | Slower and pricier, stronger reasoning on dense images and multi-box diagrams. |
-| `gemma-3-27b-it` | Gemma | yes | Strongest open-weight extraction. |
-| `gemma-3-12b-it` | Gemma | yes | Lighter Gemma. |
-| `gemma-3-4b-it` | Gemma | yes | Lightest vision size. |
-| `gemma-4-26b-a4b-it` | Gemma | yes | Gemma 4 mixture-of-experts, if enabled on your key. |
-
-`gemma-3-1b-it` is deliberately absent: the 1B size is text-only and rejects every image.
-
-Output limit per model: 65,536 tokens for Gemini 2.5, 8,192 for Gemma 3. The app requests
-4,096 (`GEMMA_MAX_OUTPUT_TOKENS`), which is comfortably inside both and enough for a full
-Mermaid diagram plus the notes payload.
-
-### Optional: a fallback chain
-
-Set `GEMMA_MODEL_FALLBACKS` to a comma-separated list of ids to try in order when the
-primary is saturated, rate-limited, or not served on your key:
-
-```ini
-GEMMA_MODEL_FALLBACKS=gemini-2.5-flash,gemma-3-27b-it
-```
-
-It is empty by default, so a failure is reported rather than silently answered by a
-different model. Whichever model actually served the reply is reported as
-`telemetry.model_used`, with `telemetry.model_fallbacks` listing what was skipped.
-
----
-
-## What the API does and does not let us assume
-
-The two families share one endpoint but not one feature set. Because a Gemma id must keep
-working from the same `GEMMA_MODEL` setting, `app/ai_client.py` builds requests to the
-**intersection** of what both accept rather than to the capabilities of the configured one.
-
-| Feature | Gemini | Gemma on this endpoint | What the app does |
-| --- | --- | --- | --- |
-| JSON mode / structured output | yes | **no** — `JSON mode is not enabled for models/gemma-3-27b-it` | The JSON schema ships in the prompt; the reply is parsed, with one corrective retry. |
-| System role | yes | **no** — `Developer instruction is not enabled for models/…` | The system prompt is folded into the single user turn. |
-| Sampler knobs | yes | default sampler only | `temperature` / `top_p` omitted unless explicitly set in `.env`. |
-| Thinking | on/off configurable | n/a | Not configured. Flash-Lite does not think by default, so no budget is stolen from the reply. |
-
-That conservatism leaves some of Gemini's structured output unused. It buys one codebase
-that behaves identically whichever id you configure, instead of branching on the model name
-and silently changing extraction quality when someone edits `.env`.
-
-### A known `gemini-2.5-flash-lite` quirk
-
-Flash-Lite has a documented bug where it wraps its JSON in a markdown fence —
-a leading ` ```json ` and a trailing ` ``` ` — where `gemini-2.5-flash` returns bare
-JSON. The prompt-driven contract already tolerates this:
-`validation.extract_json_object()` strips fences before parsing, so fenced replies parse
-normally. This is handled rather than worked around, and is the main reason the fallback
-chain lists `gemini-2.5-flash` as a sensible next hop.
+JarvisLabs Serverless exposes an OpenAI-compatible `chat/completions` route. Samjho sends
+the image as an inline `data:` image URL and the prompt in the same user message; JSON is
+requested in the prompt and parsed/validated locally, avoiding provider-specific JSON
+mode. Temporary HTTP 408, 429, 500, 502, 503 and 504 errors and an empty model response
+receive bounded same-model retries. Authentication and invalid-request errors fail
+clearly without retrying.
 
 ---
 
 ## Features
 
-- **Cloud inference, no local weights** — Gemini API; nothing to download, nothing to fit
-  in VRAM, selected entirely from `.env` or from the Settings screen.
-- **Model-flexible** — Gemini or Gemma vision ids, with an optional fallback chain, from
-  one codebase and one request format.
+- **Cloud GPU inference** — JarvisLabs Serverless runs the deployed Gemma vision model;
+  no model weights or GPU drivers are needed on the Samjho host.
+- **JarvisLabs-only inference** — one fixed endpoint and configured model, with no
+  provider or model fallback.
 - **Reconstruction as the deliverable** — diagrams, notes and action plans are rebuilt as
   editable artifacts rather than described in prose.
 - **ER diagrams that actually draw** — Mermaid's ER grammar is strict in ways models
@@ -175,12 +124,11 @@ upload → validate → prompt → generate → repair → normalize → render
    any inference cost is incurred.
 2. **Prompting** (`app/prompts.py`) — a mode-specific system prompt plus the full JSON schema.
    Instructions state that the image is data, never instructions.
-3. **Inference** (`app/ai_client.py`) — one thread-safe Gemini API client is built from the
-   key and reused. The image goes inline as base64 with its real MIME type; the system
-   prompt and request are fused into one user turn, because Gemma rejects a system role.
-   JSON mode is never requested. Saturated or missing models move along the fallback chain,
-   each with a short backoff; a request the API rejects outright fails immediately instead
-   of burning quota on retries that cannot succeed.
+3. **Inference** (`app/ai_client.py`) — one authenticated JarvisLabs HTTP client is reused.
+   The image is sent inline as a base64 data URL with its real MIME type, together with the
+   prompt. The response follows the OpenAI chat-completion shape and is normalized to text.
+   Transient service failures receive bounded retries; authentication and invalid-request
+   failures surface immediately.
 4. **Corrective retries** — one retry when the reply is not parseable JSON, and one retry when
    the generated Mermaid fails validation. Both are text-only follow-ups.
 5. **Normalization** (`app/validation.py`) — arbitrary model JSON is coerced into a
@@ -242,13 +190,13 @@ actionable message rather than a stack trace.
 ### 1. Prerequisites
 
 - Python 3.10+
-- A Gemini API key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+- A JarvisLabs account, a running Serverless deployment, and an API key
 
 ### 2. Install
 
 ```bash
-git clone https://github.com/rohan1252030019-netizen/scribble2structure.git
-cd scribble2structure
+git clone https://github.com/connect4devops/Samjho.git
+cd Samjho
 
 python -m venv .venv
 # Windows:      .\.venv\Scripts\activate
@@ -257,34 +205,64 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 3. Configure
+### 3. Create a JarvisLabs GPU deployment
+
+1. Follow the [JarvisLabs Serverless guide](https://docs.jarvislabs.ai/serverless/) and
+   open its [deployment dashboard](https://jarvislabs.ai/dashboard/serverless); choose
+   **New deployment**.
+2. Select a serving framework supported by your model (vLLM or SGLang) and choose the
+   **Gemma 4 26B A4B Instruct** model from the model selector, or use the model from
+   [your JarvisLabs model page](https://jarvislabs.ai/dashboard/models/gemma-4-31b-it).
+3. Select a GPU type and count that satisfy the dashboard's memory requirements for this
+   model. If the model does not fit on one GPU, select a supported multi-GPU configuration.
+   If the model source requires Hugging Face access, provide an authorized token as the
+   deployment's `HF_TOKEN` environment variable in JarvisLabs (not in Samjho's app config).
+4. For lower idle cost, set **Min workers** to `0`; set it to `1` if you prefer a warm
+   worker and faster first responses. Scale-to-zero stops worker GPU charges while idle,
+   but persistent model storage continues to be billed.
+5. Click **Create**, wait until deployment status is **Running** and its worker is healthy.
+   Copy the OpenAI base URL shown for the deployment; its documented shape is
+   `https://<region-base-url>/openai/<deployment_id>/v1`.
+6. Create an API key under [JarvisLabs API settings](https://jarvislabs.ai/settings/api-keys).
+
+GPU selection happens in the JarvisLabs deployment, not in Samjho's API request. The
+chat-completion response does not report GPU utilization; check the deployment's Workers
+and Usage dashboard for worker health and cost. The app's Settings **Test connection**
+checks text reachability; analyze one sample image to confirm the deployed serving
+framework/model accepts vision content.
+
+### 4. Configure Samjho
 
 ```bash
-cp .env.example .env      # Windows: copy .env.example .env
+cp .env.example .env      # Windows PowerShell: Copy-Item .env.example .env
 ```
 
+Keep the three required deployment values separate in `.env`:
+
 ```ini
-# Gemini API key - https://aistudio.google.com/apikey
-GEMINI_API_KEY=your_actual_key_here
-
-# Pick the model that matches the quality/latency tradeoff (default shown)
-GEMMA_MODEL=gemini-2.5-flash-lite
-
-# Optional: try other models in order when the primary is unavailable
-# GEMMA_MODEL_FALLBACKS=gemini-2.5-flash,gemma-3-27b-it
+JARVIS_API_TOKEN=paste_your_jarvislabs_api_token_here
+JARVISLABS_MODEL=gemma-4-26b-a4b-it
+JARVISLABS_TIMEOUT_SECONDS=120
+JARVISLABS_MAX_OUTPUT_TOKENS=4096
 
 # Optional image upload limit in MB (default: 10)
 MAX_UPLOAD_MB=10
 ```
 
-### 4. Run
+The endpoint is fixed by Samjho; `JARVIS_API_TOKEN` is the private credential and
+`JARVISLABS_MODEL` must match the deployment's model identifier. `JARVISLABS_API_KEY` is
+also accepted as an alternative token variable. You can also enter the JarvisLabs API key
+in **Settings**; it is tested against the fixed endpoint and saved locally. Keep `.env`
+private and never commit API keys.
+
+### 5. Run
 
 ```bash
 uvicorn app.main:app --host 127.0.0.1 --port 8090 --reload
 ```
 
-Open **http://127.0.0.1:8090**. If the key is missing, the UI says so on load instead of
-failing on the first upload.
+Open **http://127.0.0.1:8090**. The health endpoint reports missing credentials before
+an upload fails.
 
 ---
 
@@ -292,8 +270,8 @@ failing on the first upload.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/health` | Readiness, the active model and the endpoint. `200` when a key is set, `503` when not. |
-| `GET` | `/api/config` | Model id, upload limit, supported formats, available modes. |
+| `GET` | `/api/health` | Readiness, provider, model, endpoint and key configuration state. `503` when not ready. |
+| `GET` | `/api/config` | Provider/model id, upload limit, supported formats and modes. |
 | `GET` | `/api/samples` | Sample gallery entries. |
 | `POST` | `/api/analyze` | `multipart/form-data` with `image` and `mode`. `400` on a bad upload, `502` on an inference failure. |
 | `GET` | `/api/settings` | The current settings. The key is masked; it is never returned. |
@@ -315,7 +293,7 @@ The key endpoints refuse requests that do not come from the app's own page (`403
 | `deviations` | Every change made to the original drawing — what changed, why, and whether it came from the source, an inference or a normalization. |
 | `guide` | The plain-language walkthrough: overview, steps, concepts, next steps. |
 | `assessment` | The grade: score, confidence band, per-criterion scores with evidence, and the gaps worth a second look. |
-| `telemetry` | Model used, fallbacks skipped, attempts, elapsed time, repairs made. |
+| `telemetry` | Provider/model used, retry attempts, elapsed time and repairs made. |
 
 ---
 
@@ -336,13 +314,12 @@ python scripts/create_samples.py
 pytest
 ```
 
-The suite runs with no network call and no API key. Only the transport is faked
-(`tests/conftest.py`); request assembly, the real SDK's `types` objects, config, error
-translation, corrective retries, Mermaid validation, normalization and HTTP routing all
-execute for real.
+The suite runs with no network call or live API key. Provider transports are faked
+(`tests/conftest.py`); request assembly, config, error translation, corrective retries,
+Mermaid validation, normalization and HTTP routing all execute for real.
 
-- `tests/test_ai_client.py` — model selection and the fallback chain, request assembly, the
-  API capability constraints above, error translation, retries.
+- `tests/test_ai_client.py` — JarvisLabs image-request assembly, error translation and
+  bounded same-endpoint retries.
 - `tests/test_diagram.py` — Mermaid sanitization and validation, including the ER repairs.
 - `tests/test_grading.py` — the grading criteria.
 - `tests/test_settings.py` — key masking, format checks, the local store, connection tests.
@@ -356,12 +333,12 @@ execute for real.
 
 ```
 app/
-  ai_client.py    Gemini API client: request assembly, fallback chain, retries
+  ai_client.py    JarvisLabs transport, request assembly and bounded retries
   validation.py   Upload integrity, EXIF transpose, response normalization
   diagram.py      Mermaid sanitization, ER rewriting, validation, repair prompts
   grading.py      Objective grading of a reconstruction against its source
   prompts.py      Mode-specific system prompts and the JSON schema
-  settings.py     The API key store: masking, format checks, local storage
+  settings.py     JarvisLabs API key store: masking, format checks, local storage
   main.py         FastAPI routes
 static/index.html Frontend (Mermaid rendering, editors, guide, grade, exports)
 samples/          Sample input images
@@ -373,15 +350,42 @@ tests/            Test suite and shared test doubles
 
 ## Security & reliability
 
-- **Secrets stay server-side.** `GEMINI_API_KEY` is read only by the inference layer and is
-  never sent to the browser or committed; `.env` is gitignored. A key saved from the
+- **Secrets stay server-side.** `JARVISLABS_API_KEY` / `JARVIS_API_TOKEN` are read only by the inference layer and
+  is never sent to the browser or committed; `.env` is gitignored. A key saved from the
   Settings screen lives in an owner-readable, gitignored file and is never returned by the
   API — only a masked form is.
 - **Uploads are inspected, not trusted.** Magic-byte sniffing, format agreement, size and
   megapixel ceilings, and EXIF orientation correction.
 - **Model output is treated as data.** Generated SQL, Mermaid and prose are never executed.
   Script-like markup in a diagram is rejected, and all rendered text is HTML-escaped.
-- **Images are sent to a third party.** This is the deliberate cost of cloud inference: the
-  uploaded image reaches Google's servers. Do not use it for material you cannot share.
+- **Images are sent to a third party.** With the default provider, uploaded images reach
+  JarvisLabs and its configured model-serving workers. Do not use it for material you
+  cannot share.
 - **No mocked responses in the product.** The real model runs in every mode; only the test
   suite substitutes fakes.
+
+---
+
+## Project positioning
+
+Samjho is an **AI-powered productivity and knowledge-management tool**, specifically
+**document intelligence**: it digitizes handwriting, notes, whiteboards and diagrams,
+then turns them into structured, editable information. For technical audiences, the
+clearest category is **Document AI**; for a pitch or competition entry, position it as an
+**AI productivity and knowledge-capture tool**.
+
+- **Business model/category:** A B2B/B2C SaaS developer-and-productivity tool built on
+  applied generative AI and multimodal document understanding.
+- **Primary use:** Handwriting and whiteboard OCR, diagram digitization, structured
+  extraction, validation, repair and grading. It sits alongside AI-assisted import and
+  note-taking workflows such as Miro/Lucidchart import, Microsoft Lens and Notion AI.
+- **Horizontal industry scope:** Education (study notes and concept maps), software and
+  product teams (architecture and ER diagrams), and business operations (meeting notes and
+  action plans).
+- **Likely customers:** Students and educators; software/product teams; consultants and
+  project managers facilitating workshops and whiteboard sessions.
+- **Technology layer:** JarvisLabs-hosted Gemma 4 vision model by default, with validation,
+  diagram repair, normalization and objective grading layered around generation.
+- **Planned direction:** Cited idea validation expands Samjho toward AI research and
+  decision-support tooling; pushing action items into GitHub issues expands it toward
+  workflow automation and DevOps productivity.
