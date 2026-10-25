@@ -1,0 +1,1317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scribble2Structure</title>
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Instrument+Serif&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#15171c;--mut:#6b7280;--line:#e7e9ee;--acc:#3a4ff0;--acc-s:#eef0ff;
+--good:#15803d;--warn:#a16207;--bad:#b91c1c;--r:14px;--serif:"Instrument Serif",Georgia,serif;
+--sans:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,Menlo,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+button,select,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+a{color:var(--acc)}
+
+header{height:64px;padding:0 32px;display:flex;align-items:center;justify-content:space-between;
+background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.logo{font:400 25px var(--serif);letter-spacing:-.01em}
+.logo i{font-style:normal;color:var(--acc)}
+.status{display:flex;align-items:center;gap:14px;font-size:13px;color:var(--mut)}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:99px;background:#ecfdf3;color:var(--good);font-weight:500}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.token-warn{background:#fef9c3;color:var(--warn)}
+
+main{display:grid;grid-template-columns:380px 1fr;min-height:calc(100vh - 64px)}
+aside{background:var(--card);border-right:1px solid var(--line);padding:28px;display:flex;flex-direction:column;gap:26px;
+overflow-y:auto;max-height:calc(100vh - 64px);position:sticky;top:64px}
+.work{padding:44px 56px 80px}
+.wrap{max-width:780px;margin:0 auto}
+@media(max-width:900px){main{grid-template-columns:1fr}aside{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line)}.work{padding:28px 20px 60px}header{padding:0 18px}}
+
+.step{display:flex;flex-direction:column;gap:9px}
+.label{font-size:13px;font-weight:600}
+.select{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer;appearance:none;
+background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%236b7280' stroke-width='1.8'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E");
+background-repeat:no-repeat;background-position:right 14px center}
+.select:hover{border-color:#cfd3db}
+.hint{font-size:13px;color:var(--mut);margin:0}
+
+.drop{border:1.5px dashed #cdd1d9;border-radius:var(--r);padding:30px 16px;text-align:center;cursor:pointer;background:var(--bg);transition:border-color .15s,background .15s}
+.drop:hover,.drop.over{border-color:var(--acc);background:var(--acc-s)}
+.drop svg{width:26px;height:26px;stroke:var(--acc);margin-bottom:8px}
+.drop strong{display:block;font-weight:600}
+.drop small{color:var(--mut);font-size:12.5px}
+.preview-card{display:none;flex-direction:column;gap:10px}
+.pimg{border-radius:12px;overflow:hidden;background:var(--bg);border:1px solid var(--line);display:flex;justify-content:center}
+.pimg img{max-width:100%;max-height:210px;object-fit:contain}
+.pmeta{font-size:12.5px;color:var(--mut);word-break:break-all}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+
+.btn{padding:8px 14px;border:1px solid var(--line);background:var(--card);border-radius:10px;font-size:13.5px;font-weight:500;
+display:inline-flex;align-items:center;gap:6px;transition:border-color .15s,color .15s}
+.btn:hover:not(:disabled){border-color:var(--acc);color:var(--acc)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.danger:hover{border-color:var(--bad);color:var(--bad)}
+.btn.on{background:var(--acc-s);border-color:var(--acc);color:var(--acc)}
+.btn.sm{padding:5px 11px;font-size:12.5px}
+.primary{width:100%;padding:13px;border:0;border-radius:12px;background:var(--acc);color:#fff;font-weight:600;
+display:flex;justify-content:center;align-items:center;gap:9px;transition:background .15s,transform .1s}
+.primary:hover:not(:disabled){background:#2d3fd0}
+.primary:active:not(:disabled){transform:scale(.99)}
+.primary:disabled{background:#c9ccd6;cursor:not-allowed}
+
+#samplesGrid{display:flex;flex-direction:column}
+.sample-btn{text-align:left;background:none;border:0;border-top:1px solid var(--line);padding:10px 4px;display:flex;flex-direction:column;gap:1px}
+.sample-btn:last-child{border-bottom:1px solid var(--line)}
+.sample-btn strong{font-weight:500;font-size:13.5px}
+.sample-btn small{color:var(--mut);font-size:12.5px;line-height:1.4}
+.sample-btn:hover strong{color:var(--acc)}
+.fine{font-size:12px;color:var(--mut);margin:0}
+
+.banner{border-radius:12px;padding:12px 15px;font-size:13.5px;margin-bottom:16px;display:flex;flex-direction:column;gap:6px}
+.banner.warn{background:#fffbeb;color:#92400e}
+.banner.bad{background:#fef2f2;color:var(--bad)}
+.banner.info{background:var(--acc-s);color:#2b3bb5}
+.banner code{background:rgba(0,0,0,.06);padding:1px 5px;border-radius:5px;font-size:12.5px}
+.banner .btn{align-self:flex-start}
+
+.empty{text-align:center;padding:12vh 20px 0;color:var(--mut)}
+.empty h2{font:400 38px/1.15 var(--serif);color:var(--ink);margin:0 0 10px;letter-spacing:-.01em}
+.empty p{max-width:420px;margin:0 auto}
+
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+.title-input{font:400 38px/1.15 var(--serif);letter-spacing:-.01em;border:1px solid transparent;border-radius:10px;background:none;padding:2px 8px;margin-left:-8px;width:100%;min-width:260px}
+.title-input:hover{border-color:var(--line)}
+.title-input:focus{outline:0;border-color:var(--acc);background:var(--card)}
+.meta{color:var(--mut);font-size:13px;display:flex;gap:6px 16px;flex-wrap:wrap;margin-top:2px}
+.meta .mode{color:var(--acc);font-weight:500}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+.summary{width:100%;border:1px solid transparent;border-radius:10px;background:none;resize:none;overflow:hidden;
+font-size:16.5px;line-height:1.65;padding:6px 8px;margin:0 0 6px -8px;display:block}
+.summary:hover{border-color:var(--line)}
+.summary:focus{outline:0;border-color:var(--acc);background:var(--card)}
+
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:22px 0 26px;overflow-x:auto}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:10px 13px;margin-bottom:-1px;color:var(--mut);font-weight:500;font-size:14px;white-space:nowrap}
+.tab:hover:not(:disabled){color:var(--ink)}
+.tab.on{color:var(--ink);border-bottom-color:var(--acc)}
+.tab:disabled{opacity:.35;cursor:not-allowed}
+.tab em{font-style:normal;font-size:12px;color:var(--mut);margin-left:5px}
+
+.blk{padding:0 0 22px;margin-bottom:22px;border-bottom:1px solid var(--line)}
+.blk:last-child{border:0}
+.blk h3{margin:0 0 8px;font-size:16.5px;font-weight:600;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.blk ul{margin:0;padding-left:20px}
+.blk li{margin-bottom:5px}
+.blk li::marker{color:#b4b9c4}
+.conf{font-size:12px;font-weight:500;padding:1px 9px;border-radius:99px}
+.conf.high{background:#ecfdf3;color:var(--good)}
+.conf.medium{background:#fef9c3;color:var(--warn)}
+.conf.low{background:#fee2e2;color:var(--bad)}
+
+.item{display:flex;gap:14px;align-items:baseline;padding:13px 0;border-bottom:1px solid var(--line)}
+.item .n{color:var(--acc);font-weight:600;min-width:20px}
+.task{align-items:flex-start}
+.task input{margin-top:5px;width:16px;height:16px;accent-color:var(--acc);cursor:pointer}
+.task .t.done{text-decoration:line-through;color:var(--mut)}
+.tags{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.tag{font-size:12.5px;color:var(--mut);background:var(--bg);padding:2px 10px;border-radius:99px}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px}
+.mbox{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:220px;overflow:auto;text-align:center}
+.mbox svg{max-width:100%;height:auto}
+.tools{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.diag{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:16px 0;background:var(--panel)}
+.diag summary{cursor:pointer;font-size:13px;color:var(--mut)}
+.diag .hint{margin-top:8px}
+.diag .src{max-height:260px;overflow:auto;margin-top:10px}
+.code,pre.src{width:100%;background:#f1f2f6;border:1px solid var(--line);border-radius:12px;padding:14px;font:13px/1.6 var(--mono);color:#3b4252;margin:0}
+.code{min-height:220px;resize:vertical}
+pre.src{overflow-x:auto;text-align:left}
+.code:focus{outline:0;border-color:var(--acc)}
+
+.uncertain{border-left:3px solid #e0a82e;padding:2px 0 2px 14px;margin-bottom:18px}
+.uncertain b{display:block;font-weight:600}
+.uncertain span{color:var(--mut);font-size:14px}
+.sbs{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:8px}
+@media(max-width:1200px){.sbs{grid-template-columns:1fr}}
+.sbs .card{display:flex;flex-direction:column;gap:10px}
+.sbs h4{margin:0;font-size:13px;font-weight:600;color:var(--mut)}
+.sbs img{max-width:100%;max-height:420px;object-fit:contain;border-radius:8px}
+
+.menu{position:relative}
+.menu summary{list-style:none}
+.menu summary::-webkit-details-marker{display:none}
+.pop{position:absolute;right:0;top:calc(100% + 6px);z-index:10;min-width:210px;background:var(--card);border:1px solid var(--line);border-radius:12px;
+padding:6px;box-shadow:0 12px 32px rgba(20,22,28,.1);display:flex;flex-direction:column}
+.pop button{background:none;border:0;text-align:left;padding:8px 12px;border-radius:8px;font-size:13.5px}
+.pop button:hover{background:var(--acc-s);color:var(--acc)}
+.pop hr{border:0;border-top:1px solid var(--line);margin:4px 0;width:100%}
+
+/* Settings */
+.gear{background:none;border:1px solid var(--line);border-radius:10px;padding:6px 9px;display:inline-flex;align-items:center;gap:7px;
+ font-size:13.5px;font-weight:500;color:var(--mut);transition:border-color .15s,color .15s}
+.gear:hover{border-color:var(--acc);color:var(--acc)}
+.gear svg{width:16px;height:16px;stroke:currentColor}
+.sheet{position:fixed;inset:0;background:rgba(15,17,22,.5);z-index:80;display:none;align-items:flex-start;justify-content:center;padding:8vh 20px 20px;overflow:auto}
+.sheet.open{display:flex}
+.sheet-card{background:var(--card);border-radius:16px;width:100%;max-width:520px;box-shadow:0 24px 60px rgba(15,17,22,.22);padding:26px}
+.sheet-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:6px}
+.sheet-head h2{margin:0;font:400 24px/1.2 var(--serif)}
+.sheet-head p{margin:4px 0 0;color:var(--mut);font-size:13.5px}
+.sheet-close{background:none;border:0;font-size:24px;line-height:1;color:var(--mut);padding:0 4px}
+.sheet-close:hover{color:var(--ink)}
+.field{margin-top:18px;display:flex;flex-direction:column;gap:7px}
+.field label{font-size:13px;font-weight:600}
+.field .hint{font-size:12.5px;color:var(--mut)}
+.keyrow{display:flex;gap:8px;align-items:center}
+.keyrow input{flex:1;min-width:0}
+.input{width:100%;padding:10px 13px;border:1px solid var(--line);border-radius:10px;background:var(--card);font:14px var(--mono)}
+.input:focus{outline:0;border-color:var(--acc)}
+.keystate{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mut);flex-wrap:wrap}
+.keystate .dot{width:8px;height:8px;border-radius:50%;background:var(--good)}
+.keystate .dot.off{background:#c9ccd6}
+.msg{border-radius:10px;padding:10px 13px;font-size:13.5px;margin-top:14px;display:none}
+.msg.show{display:block}
+.msg.ok{background:#ecfdf3;color:var(--good)}
+.msg.bad{background:#fef2f2;color:var(--bad)}
+.msg.busy{background:var(--acc-s);color:#2b3bb5}
+.sheet .row{margin-top:18px}
+.sheet-note{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);font-size:12.5px;color:var(--mut)}
+.sheet-note code{background:var(--bg);padding:1px 5px;border-radius:5px;font-size:12px}
+
+/* Grade */
+.grade-top{display:flex;gap:22px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.grade-score{font:400 46px/1 var(--serif);color:var(--acc)}
+.grade-score small{font:500 15px var(--sans);color:var(--mut)}
+.grade-band{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:99px;font-size:12.5px;font-weight:600}
+.grade-band.high{background:#ecfdf3;color:var(--good)}
+.grade-band.medium{background:#fef9c3;color:var(--warn)}
+.grade-band.low{background:#fee2e2;color:var(--bad)}
+.crit{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+.crit-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px}
+.crit-head strong{font-size:14.5px;font-weight:600}
+.crit-score{font-size:13px;color:var(--mut);font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:99px;background:var(--bg);overflow:hidden;margin:8px 0}
+.bar i{display:block;height:100%;border-radius:99px;background:var(--acc)}
+.bar i.partial{background:#e0a82e}
+.bar i.gap{background:var(--bad)}
+.crit p{margin:0;font-size:13.5px;color:var(--mut)}
+.verdict{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:1px 8px;border-radius:99px}
+.verdict.strong{background:#ecfdf3;color:var(--good)}
+.verdict.partial{background:#fef9c3;color:var(--warn)}
+.verdict.gap{background:#fee2e2;color:var(--bad)}
+
+/* Guide */
+.guide-step{display:flex;gap:14px;align-items:flex-start;padding:13px 0;border-bottom:1px solid var(--line)}
+.guide-step:last-child{border-bottom:0}
+.guide-step .n{color:var(--acc);font-weight:600;min-width:22px;padding-top:1px}
+.guide-step b{display:block;font-weight:600;margin-bottom:2px}
+.guide-step span{color:var(--mut);font-size:14px}
+.guide-concept{border-left:3px solid var(--acc);padding:2px 0 2px 14px;margin-bottom:12px}
+.guide-concept b{display:block;font-weight:600}
+.guide-concept span{color:var(--mut);font-size:14px}
+.next-step{display:flex;gap:11px;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line)}
+.next-step:last-child{border-bottom:0}
+.next-step .tick{color:var(--acc)}
+
+/* Deviations */
+.dev{border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:0 12px 12px 0;padding:12px 15px;margin-bottom:10px;background:var(--card)}
+.dev b{display:block;font-weight:600;margin-bottom:3px}
+.dev .why{color:var(--mut);font-size:13.5px}
+.dev .basis{display:inline-block;margin-top:7px;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);
+ background:var(--bg);padding:1px 8px;border-radius:99px}
+
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+.loading .spinner{width:26px;height:26px;border-color:var(--line);border-top-color:var(--acc)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading{text-align:center;padding:18vh 20px 0;color:var(--mut)}
+.loading strong{display:block;color:var(--ink);font-size:17px;margin:16px 0 4px}
+.loading .elapsed{font-family:var(--mono);font-size:13px;color:var(--mut);margin-top:10px}
+
+.modal{position:fixed;inset:0;background:rgba(15,17,22,.78);z-index:99;display:none;align-items:center;justify-content:center;padding:24px}
+.modal img{max-width:92vw;max-height:90vh;object-fit:contain;border-radius:12px}
+.modal-close{position:absolute;top:18px;right:24px;font-size:28px;color:#fff;background:none;border:0}
+.toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:99px;font-size:13.5px;z-index:120}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Scribble<i>2</i>Structure</div>
+  <div class="status">
+    <span id="modelTag">loading…</span>
+    <span class="pill" id="tokenTag">Model ready</span>
+    <button class="gear" id="settingsBtn" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+      Settings
+    </button>
+  </div>
+</header>
+
+<main>
+  <aside>
+    <div class="step">
+      <label class="label" for="modeSelect">What are you converting?</label>
+      <select class="select" id="modeSelect">
+        <option value="auto" selected>Auto detect</option>
+        <option value="notes">Handwritten notes → structured notes</option>
+        <option value="flowchart">Diagram → flowchart</option>
+        <option value="mindmap">Brainstorm → mind map</option>
+        <option value="architecture">Technical diagram → architecture</option>
+        <option value="actions">Meeting notes → action plan</option>
+        <option value="concept">Scientific concept map</option>
+        <option value="er">Database ER diagram</option>
+      </select>
+      <p class="hint" id="modeDesc">Picks the best format based on what the image contains.</p>
+    </div>
+
+    <div class="step">
+      <span class="label">Your image</span>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose an image">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
+        <strong>Drop an image or click to browse</strong>
+        <small>PNG, JPG or WEBP, up to <span id="maxMb">10</span> MB</small>
+      </div>
+      <input type="file" id="file" accept="image/png,image/jpeg,image/webp" hidden />
+      <div class="preview-card" id="previewCard">
+        <div class="pimg"><img id="previewImg" alt="Image preview" /></div>
+        <div class="pmeta" id="previewMeta"></div>
+        <div class="row">
+          <button class="btn sm" id="replaceBtn">Replace</button>
+          <button class="btn sm" id="zoomBtn">Enlarge</button>
+          <button class="btn sm danger" id="removeBtn">Remove</button>
+        </div>
+      </div>
+    </div>
+
+    <button class="primary" id="runBtn" disabled>Analyze image</button>
+
+    <div class="step">
+      <span class="label">Or try a sample</span>
+      <div id="samplesGrid"></div>
+    </div>
+
+    <p class="fine">Images are sent to Google's Gemini API and analysed in the cloud by <span id="modelFootnote">a vision-language model</span>. Check the results before relying on them.</p>
+  </aside>
+
+  <section class="work" id="workSection">
+    <div class="wrap" id="out">
+      <div class="empty">
+        <h2>Turn scribbles into structure</h2>
+        <p>Add a photo of handwritten notes, a whiteboard or a diagram, then choose Analyze image.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="imgModal">
+  <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+  <img id="modalImg" alt="Full size preview" />
+</div>
+
+<div class="sheet" id="settingsSheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <div>
+        <h2 id="settingsTitle">Settings</h2>
+        <p>Connect the app to the Gemini API with your own key.</p>
+      </div>
+      <button class="sheet-close" id="settingsClose" aria-label="Close settings">&times;</button>
+    </div>
+
+    <div class="keystate">
+      <span class="dot off" id="keyDot"></span>
+      <span id="keyState">Checking…</span>
+    </div>
+
+    <div class="field">
+      <label for="apiKeyInput">Gemini API key</label>
+      <div class="keyrow">
+        <input class="input" id="apiKeyInput" type="password" autocomplete="off" spellcheck="false"
+               placeholder="AIza…" aria-describedby="keyHint" />
+        <button class="btn sm" id="revealKeyBtn" type="button" aria-label="Show the key">Show</button>
+      </div>
+      <p class="hint" id="keyHint">Get one free at
+        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.
+        The key is tested against the API before it is saved, and it never comes back to this page.</p>
+    </div>
+
+    <div class="msg" id="keyMsg" role="status"></div>
+
+    <p class="hint" id="keyTransportNote" style="display:none;margin-top:12px"></p>
+
+    <div class="row">
+      <button class="btn" id="testKeyBtn">Test connection</button>
+      <button class="btn on" id="saveKeyBtn">Save key</button>
+      <button class="btn danger" id="clearKeyBtn">Remove key</button>
+    </div>
+
+    <div class="sheet-note">
+      The key is stored on this machine only, in <code id="keyStorePath">a local file</code>, readable by your
+      user account alone. It is never sent to the browser again, never written to the page, and never committed
+      to the repository. The model in use is <strong id="settingsModel">…</strong>.
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => (s == null ? "" : String(s)).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const EMPTY = `<div class="empty"><h2>Turn scribbles into structure</h2><p>Add a photo of handwritten notes, a whiteboard or a diagram, then choose Analyze image.</p></div>`;
+
+mermaid.initialize({startOnLoad:false, securityLevel:"strict", theme:"neutral",
+  // Native <text> labels instead of <foreignObject>: browsers do not draw
+  // foreignObject content when an SVG is loaded as an <img>, so the PNG export
+  // would come out with empty boxes. Costs slightly looser label wrapping.
+  htmlLabels:false,
+  themeVariables:{fontFamily:"DM Sans, system-ui, sans-serif", primaryColor:"#eef0ff", primaryBorderColor:"#3a4ff0", lineColor:"#6b7280", fontSize:"14px"}});
+
+let selectedFile = null, originalResult = null, currentResult = null;
+let activeTab = "notes", hasUnsavedEdits = false, showSideBySide = false;
+let configData = {}, mermaidRenderCount = 0;
+
+function toast(msg){
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2200);
+}
+function banner(kind, html){
+  const d = document.createElement("div"); d.className = "banner " + kind; d.innerHTML = html;
+  $("out").insertBefore(d, $("out").firstChild);
+}
+
+// Config and samples
+fetch("/api/config").then(r => r.json()).then(c => {
+  configData = c;
+  if (c.model) {
+    $("modelTag").textContent = c.model;
+    if ($("modelFootnote")) $("modelFootnote").textContent = c.model;
+  }
+  if (c.max_mb) $("maxMb").textContent = c.max_mb;
+  if (!c.api_key_present) {
+    $("tokenTag").textContent = "API key missing"; $("tokenTag").className = "pill token-warn";
+    banner("warn", `<strong>No Gemini API key.</strong><span>Add it in <button class="btn sm" id="bannerSettingsBtn">Settings</button>, or set <code>GEMINI_API_KEY</code> in your <code>.env</code> file. Keys are free at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</span>`);
+  }
+}).catch(() => {});
+
+fetch("/api/samples").then(r => r.json()).then(samples => {
+  $("samplesGrid").innerHTML = samples.map(s => `
+    <button class="sample-btn" data-url="${esc(s.url)}" data-name="${esc(s.filename)}" data-mode="${esc(s.mode)}">
+      <strong>${esc(s.title)}</strong><small>${esc(s.description)}</small>
+    </button>`).join("");
+  document.querySelectorAll(".sample-btn").forEach(btn => btn.onclick = async () => {
+    try {
+      const blob = await (await fetch(btn.dataset.url)).blob();
+      pickFile(new File([blob], btn.dataset.name, {type: blob.type}));
+      if (btn.dataset.mode) { $("modeSelect").value = btn.dataset.mode; updateModeDesc(); }
+    } catch (err) { toast("Couldn't load the sample: " + err.message); }
+  });
+}).catch(() => {});
+
+const MODE_DESCS = {
+  auto: "Picks the best format based on what the image contains.",
+  notes: "Pulls out text, headings, bullet points, formulas and definitions.",
+  flowchart: "Finds steps, arrows and decisions and draws a flowchart.",
+  mindmap: "Maps the central idea and its branches into a mind map.",
+  architecture: "Describes system components, interfaces and data flow.",
+  actions: "Lists decisions, tasks, owners and deadlines without inventing any.",
+  concept: "Maps theories, formulas and how they relate.",
+  er: "Extracts tables, keys and relationships into an ER diagram."
+};
+function updateModeDesc(){ $("modeDesc").textContent = MODE_DESCS[$("modeSelect").value] || ""; }
+$("modeSelect").onchange = updateModeDesc;
+
+// ---------------------------------------------------------------------------
+// Settings: enter, test and save the API key without leaving the app
+// ---------------------------------------------------------------------------
+let settingsState = null;
+
+function keyMessage(kind, text){
+  const box = $("keyMsg");
+  box.className = "msg show " + kind;
+  box.textContent = text;
+}
+
+// The result of a connection test, in the words of someone who was told
+// what went wrong.
+function keyResult(result){
+  if (result.ok){
+    const ms = result.elapsed_ms ? ` (${result.elapsed_ms} ms)` : "";
+    return `The key works. ${result.model || ""} answered the test request${ms}.`;
+  }
+  return result.message || "The key was rejected.";
+}
+
+function paintSettings(s){
+  settingsState = s;
+  const present = !!(s && s.api_key_present);
+  $("keyDot").className = "dot" + (present ? "" : " off");
+  const source = s && s.api_key_source;
+  const where = source === "store" ? "saved on this machine"
+    : source === "environment" ? "read from your .env file" : "not set yet";
+  $("keyState").textContent = present
+    ? `A key is ${where} (${s.api_key_masked}).`
+    : "No API key yet. Paste one below to connect the app.";
+  if (s && s.model) $("settingsModel").textContent = s.model;
+  if (s && s.store) $("keyStorePath").textContent = s.store;
+  $("clearKeyBtn").disabled = !present;
+}
+
+async function loadSettings(){
+  try {
+    const r = await fetch("/api/settings");
+    const s = await r.json();
+    paintSettings(s);
+    return s;
+  } catch (e) {
+    $("keyState").textContent = "Could not read the settings.";
+    return null;
+  }
+}
+
+function openSettings(){
+  $("settingsSheet").classList.add("open");
+  $("apiKeyInput").value = "";
+  $("keyMsg").className = "msg";
+  loadSettings();
+  warnAboutPlaintext();
+  setTimeout(() => $("apiKeyInput").focus(), 60);
+}
+function closeSettings(){ $("settingsSheet").classList.remove("open"); }
+
+// A key pasted into a page served over plain HTTP travels in the clear.
+// On localhost that is fine; on a shared network it is not, so it is said
+// out loud rather than left for the user to work out.
+function warnAboutPlaintext(){
+  const host = (location.hostname || "");
+  const local = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "";
+  const note = $("keyTransportNote");
+  if (!note) return;
+  if (location.protocol === "https:" || local){
+    note.style.display = "none";
+    return;
+  }
+  note.style.display = "block";
+  note.textContent = "This page is not served over HTTPS, so the key travels to the "
+    + "server in the clear. Use it only on a network you trust.";
+}
+
+$("settingsBtn").onclick = openSettings;
+$("settingsClose").onclick = closeSettings;
+$("settingsSheet").onclick = e => { if (e.target === $("settingsSheet")) closeSettings(); };
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape"){ $("imgModal").style.display = "none"; closeSettings(); }
+});
+
+$("revealKeyBtn").onclick = () => {
+  const input = $("apiKeyInput");
+  const hidden = input.type === "password";
+  input.type = hidden ? "text" : "password";
+  $("revealKeyBtn").textContent = hidden ? "Hide" : "Show";
+};
+
+async function postKey(path, key){
+  const res = await fetch(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({api_key: key})
+  });
+  const data = await res.json().catch(() => ({ok: false, message: `Server error ${res.status}`}));
+  return {status: res.status, data};
+}
+
+$("testKeyBtn").onclick = async () => {
+  const key = $("apiKeyInput").value.trim();
+  if (!key){ keyMessage("bad", "Paste your Gemini API key first."); return; }
+  $("testKeyBtn").disabled = true;
+  keyMessage("busy", "Testing the key against the Gemini API…");
+  try {
+    const {status, data} = await postKey("/api/settings/api-key/test", key);
+    if (status === 200 && data.ok){
+      keyMessage("ok", keyResult(data));
+      paintSettings({...(settingsState || {}), api_key_present: true});
+    } else {
+      keyMessage("bad", data.message || "The key was rejected.");
+    }
+  } catch (e) {
+    keyMessage("bad", "Could not reach the server: " + e.message);
+  } finally {
+    $("testKeyBtn").disabled = false;
+  }
+};
+
+$("saveKeyBtn").onclick = async () => {
+  const key = $("apiKeyInput").value.trim();
+  if (!key){ keyMessage("bad", "Paste your Gemini API key first."); return; }
+  $("saveKeyBtn").disabled = true;
+  keyMessage("busy", "Testing the key, then saving it on this machine…");
+  try {
+    const {status, data} = await postKey("/api/settings/api-key", key);
+    if (status === 200 && data.ok){
+      keyMessage("ok", (data.message || "The key works.") + " It is now saved on this machine.");
+      $("apiKeyInput").value = "";
+      paintSettings(data);
+      const tag = $("tokenTag");
+      tag.textContent = "Model ready"; tag.className = "pill";
+      $("runBtn").disabled = !selectedFile;
+      toast("API key saved");
+    } else {
+      keyMessage("bad", data.message || "The key was rejected.");
+    }
+  } catch (e) {
+    keyMessage("bad", "Could not reach the server: " + e.message);
+  } finally {
+    $("saveKeyBtn").disabled = false;
+  }
+};
+
+$("clearKeyBtn").onclick = async () => {
+  if (!confirm("Remove the saved API key from this machine?")) return;
+  try {
+    const r = await fetch("/api/settings/api-key", {method: "DELETE"});
+    const s = await r.json();
+    paintSettings(s);
+    keyMessage("busy", "The saved key was removed.");
+    const tag = $("tokenTag");
+    tag.textContent = "API key missing"; tag.className = "pill token-warn";
+  } catch (e) {
+    keyMessage("bad", "Could not reach the server: " + e.message);
+  }
+};
+
+document.addEventListener("click", e => {
+  if (e.target && e.target.id === "bannerSettingsBtn") openSettings();
+});
+
+// Image input
+const drop = $("drop");
+drop.onclick = () => $("file").click();
+drop.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } };
+$("file").onchange = e => pickFile(e.target.files[0]);
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => pickFile(e.dataTransfer.files[0]));
+
+function pickFile(f){
+  if (!f) return;
+  if (!(/image\/(png|jpeg|webp)/i.test(f.type) || /\.(png|jpe?g|webp)$/i.test(f.name))) {
+    toast("Choose a PNG, JPG or WEBP image."); return;
+  }
+  selectedFile = f;
+  const url = URL.createObjectURL(f);
+  $("previewImg").src = url; $("modalImg").src = url;
+  $("previewCard").style.display = "flex"; drop.style.display = "none";
+  $("previewMeta").textContent = `${f.name} (${(f.size / 1024).toFixed(0)} KB)`;
+  $("runBtn").disabled = false;
+}
+$("replaceBtn").onclick = () => $("file").click();
+$("removeBtn").onclick = () => {
+  selectedFile = null; $("file").value = "";
+  $("previewCard").style.display = "none"; drop.style.display = "block";
+  $("runBtn").disabled = true;
+};
+$("zoomBtn").onclick = () => $("imgModal").style.display = "flex";
+$("modalClose").onclick = () => $("imgModal").style.display = "none";
+$("imgModal").onclick = e => { if (e.target === $("imgModal")) $("imgModal").style.display = "none"; };
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("imgModal").style.display = "none"; });
+
+// Analyze
+$("runBtn").onclick = async () => {
+  if (!selectedFile || $("runBtn").disabled) return;
+  if (hasUnsavedEdits && !confirm("Starting a new analysis will replace your current edits. Continue?")) return;
+  $("runBtn").disabled = true;
+  $("runBtn").innerHTML = `<span class="spinner"></span>Analyzing…`;
+  $("out").innerHTML = `<div class="loading"><span class="spinner"></span><strong>Reading your image…</strong>
+    <div>Calling the Gemini API. A slow model can take a couple of minutes.</div>
+    <div class="elapsed" id="elapsed">0.0s</div>
+    <button class="btn sm" id="cancelBtn" style="margin-top:14px">Cancel</button></div>`;
+
+  // Inference can legitimately take minutes, so show the clock and let the
+  // user give up rather than staring at a spinner that looks frozen.
+  const startedAt = performance.now();
+  const elapsedEl = $("elapsed");
+  const tick = setInterval(() => {
+    if (elapsedEl) elapsedEl.textContent = ((performance.now() - startedAt) / 1000).toFixed(1) + "s";
+  }, 100);
+
+  const controller = new AbortController();
+  $("cancelBtn").onclick = () => controller.abort();
+
+  const fd = new FormData();
+  fd.append("image", selectedFile); fd.append("mode", $("modeSelect").value);
+  try {
+    const res = await fetch("/api/analyze", {method:"POST", body:fd, signal: controller.signal});
+    const data = await res.json().catch(() => ({detail: res.statusText}));
+    if (!res.ok) throw new Error(data.detail || `Server error ${res.status}`);
+    ["notes","takeaways","action_items","uncertain_text","suggestions","warnings"].forEach(k => data[k] = data[k] || []);
+    data.source = data.source || {filename: selectedFile.name};
+    originalResult = JSON.parse(JSON.stringify(data));
+    currentResult = JSON.parse(JSON.stringify(data));
+    hasUnsavedEdits = false;
+    const first = tabsOf(currentResult).find(t => t[2] > 0);
+    activeTab = first ? first[0] : "notes";
+    paintResult();
+  } catch (err) {
+    const aborted = err.name === "AbortError";
+    const needsKey = !aborted && /api key/i.test(err.message || "");
+    $("out").innerHTML = `<div class="banner bad"><strong>${aborted ? "Cancelled" : "Analysis failed"}</strong>
+      <span>${esc(aborted ? "Stopped waiting for the server. The model may still be running on it." : err.message)}</span>
+      <div class="row" style="margin-top:4px">
+        ${needsKey ? `<button class="btn sm" id="errSettingsBtn">Open settings</button>` : ""}
+        <button class="btn sm" id="retryBtn">Try again</button></div></div>`;
+    $("retryBtn").onclick = () => $("runBtn").click();
+    if ($("errSettingsBtn")) $("errSettingsBtn").onclick = () => openSettings();
+  } finally {
+    clearInterval(tick);
+    $("runBtn").disabled = false; $("runBtn").textContent = "Analyze image";
+  }
+};
+
+// Rendering
+function guideCount(d){
+  const g = d.guide || {};
+  return (g.steps || []).length + (g.concepts || []).length
+    + (g.next_steps || []).length + (g.overview ? 1 : 0);
+}
+function tabsOf(d){
+  return [["notes","Notes",d.notes.length],["takeaways","Takeaways",d.takeaways.length],
+    ["actions","Actions",d.action_items.length],["diagram","Diagram",d.diagram ? 1 : 0],
+    ["sql","SQL",d.sql_schema ? 1 : 0],["guide","Guide",guideCount(d)],
+    ["grade","Grade",d.assessment ? 1 : 0],
+    ["suggestions","Suggestions",d.suggestions.length],
+    ["uncertain","Needs review",d.uncertain_text.length + (d.deviations || []).length]];
+}
+const edited = () => { hasUnsavedEdits = true; if ($("resetBtn")) $("resetBtn").disabled = false; };
+
+function paintResult(){
+  const d = currentResult, t = d.telemetry || {};
+  const mode = d.detected_mode || (d.mode && d.mode !== "auto" ? d.mode : "");
+  const sbs = showSideBySide && d.diagram ? `
+    <div class="sbs">
+      <div class="card"><h4>Your image</h4><img src="${$("previewImg").src}" alt="Source image" /></div>
+      <div class="card"><h4>Diagram</h4><div id="sideMmd" class="mermaid">${esc(d.diagram.mermaid)}</div></div>
+    </div>` : "";
+
+  $("out").innerHTML = `
+    ${d.warnings.map(w => `<div class="banner warn">${esc(w)}</div>`).join("")}
+    <div class="head">
+      <div style="flex:1;min-width:260px">
+        <input class="title-input" id="titleInput" value="${esc(d.title)}" aria-label="Title" />
+        <div class="meta">
+          ${mode ? `<span class="mode">${esc(mode)}</span>` : ""}
+          <span>${esc(d.source.filename)}</span>
+          ${d.source.width ? `<span>${d.source.width}×${d.source.height}</span>` : ""}
+          <span>${((t.elapsed_ms || 0) / 1000).toFixed(1)} s</span>
+          ${t.attempts > 1 ? `<span>${t.attempts} attempts</span>` : ""}
+          ${d.assessment ? `<span title="${esc(d.assessment.rationale || "")}">Grade ${esc(d.assessment.score)}/100 · ${esc(d.assessment.confidence)}</span>` : ""}
+        </div>
+      </div>
+      <div class="actions">
+        ${d.diagram ? `<button class="btn ${showSideBySide ? "on" : ""}" id="compareBtn">Compare with image</button>` : ""}
+        <button class="btn" id="resetBtn" ${hasUnsavedEdits ? "" : "disabled"}>Reset edits</button>
+        <details class="menu" id="exportMenu"><summary class="btn">Export</summary><div class="pop" id="exportsBar"></div></details>
+      </div>
+    </div>
+    ${d.summary ? `<textarea class="summary" id="summaryInput" rows="2" aria-label="Summary">${esc(d.summary)}</textarea>` : ""}
+    ${sbs}
+    ${diagnosticsHtml(d, t)}
+    <div class="tabs">${tabsOf(d).map(([id, label, n]) =>
+      `<button class="tab ${id === activeTab ? "on" : ""}" data-tab="${id}" ${n ? "" : "disabled"}>${label}${n ? `<em>${n}</em>` : ""}</button>`).join("")}</div>
+    <div id="tabContent">${renderTab(d)}</div>`;
+
+  $("titleInput").oninput = e => { currentResult.title = e.target.value; edited(); };
+  const si = $("summaryInput");
+  if (si) { const fit = () => { si.style.height = "auto"; si.style.height = si.scrollHeight + "px"; };
+    fit(); si.oninput = e => { currentResult.summary = e.target.value; fit(); edited(); }; }
+  if ($("compareBtn")) $("compareBtn").onclick = () => { showSideBySide = !showSideBySide; paintResult(); };
+  if ($("jumpReviewBtn")) $("jumpReviewBtn").onclick = () => { activeTab = "uncertain"; paintResult(); };
+  $("resetBtn").onclick = () => {
+    if (!confirm("Discard your edits and restore the original result?")) return;
+    currentResult = JSON.parse(JSON.stringify(originalResult)); hasUnsavedEdits = false; paintResult();
+  };
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { activeTab = b.dataset.tab; paintResult(); });
+  mountExports();
+  if (activeTab === "diagram" && d.diagram) drawMermaid("mmdMain", d.diagram.mermaid, $("mermaidBox"));
+  if (showSideBySide && d.diagram && $("sideMmd")) drawMermaid("sideMmd", d.diagram.mermaid, $("sideMmd").parentNode);
+}
+
+// When a run reconstructs nothing, show what the model actually replied and
+// why the diagram was rejected, instead of an empty page.
+function diagnosticsHtml(d, t){
+  const reasons = [];
+  if (t.degraded) reasons.push("Nothing usable was extracted from this image.");
+  if (t.recovered) reasons.push("The first answer was empty; a second pass recovered content.");
+  if (t.diagram_error) reasons.push("Diagram rejected: " + t.diagram_error);
+  if (t.diagram_repair_error) reasons.push("Repair failed: " + t.diagram_repair_error);
+  if (!reasons.length && !t.raw_preview) return "";
+  return `<details class="diag">
+    <summary>Why is this empty?</summary>
+    ${reasons.map(r => `<div class="hint">${esc(r)}</div>`).join("")}
+    ${t.model ? `<div class="hint">Model: ${esc(t.model)} · ${t.elapsed_ms || 0} ms${t.content_attempts ? " · retried with the image" : ""}</div>` : ""}
+    ${t.raw_preview ? `<pre class="src">${esc(t.raw_preview)}</pre>` : ""}
+  </details>`;
+}
+
+function renderTab(d){
+  const none = (h, p) => `<div class="empty" style="padding-top:40px"><h3 style="color:var(--ink);margin:0 0 4px">${h}</h3><p>${p || ""}</p></div>`;
+  if (activeTab === "notes") return d.notes.map(n => `
+    <section class="blk"><h3>${esc(n.heading)}<span class="conf ${esc(n.confidence)}">${esc(n.confidence)} confidence</span></h3>
+    <ul>${(n.content || []).map(c => `<li>${esc(c)}</li>`).join("")}</ul></section>`).join("") || none("No notes found");
+  if (activeTab === "takeaways") return d.takeaways.map((t, i) =>
+    `<div class="item"><span class="n">${i + 1}</span><div>${esc(t)}</div></div>`).join("") || none("No takeaways");
+  if (activeTab === "actions") return d.action_items.map((a, i) => `
+    <div class="item task"><input type="checkbox" ${a.done ? "checked" : ""} onchange="toggleTask(${i})" aria-label="Mark done" />
+    <div><div class="t ${a.done ? "done" : ""}" id="taskText_${i}">${esc(a.task)}</div>
+    <div class="tags"><span class="tag">Owner: ${a.owner ? esc(a.owner) : "unassigned"}</span><span class="tag">Due: ${a.deadline ? esc(a.deadline) : "not stated"}</span></div></div></div>`).join("")
+    || none("No action items", "The image didn't contain explicit tasks or deadlines.");
+  if (activeTab === "diagram") return !d.diagram
+    ? none("Nothing to reconstruct", "This image didn't yield a diagram the validator would accept.")
+    : `<div class="card mbox" id="mermaidBox"><div class="mermaid" id="mmdMain">${esc(d.diagram.mermaid)}</div></div>
+      ${d.diagram.type === "erDiagram" ? `<div class="hint" style="margin:12px 0 0">Reading the notation: <code>||</code> exactly one · <code>|o</code> zero or one · <code>o{</code> zero or more · <code>|{</code> one or more. <code>PK</code> is a primary key and <code>FK</code> a foreign key.</div>` : ""}
+      ${(d.deviations || []).length ? `<div class="hint" style="margin:10px 0 0">${d.deviations.length} change${d.deviations.length === 1 ? "" : "s"} were made to get this diagram to draw — see <button class="btn sm" id="jumpReviewBtn">Needs review</button>.</div>` : ""}
+      <div class="tools">
+        <button class="btn" id="toggleEditorBtn">Edit source</button>
+        <button class="btn" id="copyMmdBtn">Copy source</button>
+        <button class="btn" id="dlPngBtn">Download PNG</button>
+        <button class="btn" id="dlSvgBtn">Download SVG</button>
+        <button class="btn" id="dlMmdBtn">Download .mmd</button>
+      </div>
+      <div id="diagramEditorBox" style="display:none;margin-top:14px">
+        <textarea class="code" id="mermaidSource" aria-label="Mermaid source">${esc(d.diagram.mermaid)}</textarea>
+        <div class="tools"><button class="btn on" id="updateDiagramBtn">Update diagram</button></div>
+      </div>`;
+  if (activeTab === "sql") return d.sql_schema ? `<div class="tools" style="margin:0 0 12px"><button class="btn sm" id="copySqlBtn">Copy SQL</button></div><pre class="src">${esc(d.sql_schema)}</pre>` : none("No SQL schema");
+  if (activeTab === "guide") return renderGuide(d);
+  if (activeTab === "grade") return renderGrade(d);
+  if (activeTab === "suggestions") return `<div class="banner info"><strong>Suggested next steps</strong><span>These are ideas from the model, not text read from your image.</span></div>`
+    + (d.suggestions.map((s, i) => `<div class="item"><span class="n">${i + 1}</span><div>${esc(s)}</div></div>`).join("") || none("No suggestions"));
+  if (activeTab === "uncertain") return renderReview(d);
+  return "";
+}
+
+// The teaching layer: what the drawing means, in words, for someone who
+// cannot read the diagram itself.
+function renderGuide(d){
+  const g = d.guide || {};
+  const none = (h, p) => `<div class="empty" style="padding-top:40px"><h3 style="color:var(--ink);margin:0 0 4px">${h}</h3><p>${p || ""}</p></div>`;
+  if (!guideCount(d)) return none("No walkthrough", "The model did not return a guide for this image.");
+  const steps = (g.steps || []).map((s, i) => `
+    <div class="guide-step"><span class="n">${i + 1}</span>
+      <div>${s.title ? `<b>${esc(s.title)}</b>` : ""}<span>${esc(s.detail)}</span></div></div>`).join("");
+  const concepts = (g.concepts || []).map(c => `
+    <div class="guide-concept"><b>${esc(c.term || c.meaning)}</b>${c.term ? `<span>${esc(c.meaning)}</span>` : ""}</div>`).join("");
+  const next = (g.next_steps || []).map(s => `
+    <div class="next-step"><span class="tick">→</span><div>${esc(s)}</div></div>`).join("");
+  return `
+    ${g.overview ? `<section class="blk"><h3>What this drawing is about</h3><ul><li>${esc(g.overview)}</li></ul></section>` : ""}
+    ${steps ? `<section class="blk"><h3>What to notice</h3>${steps}</section>` : ""}
+    ${concepts ? `<section class="blk"><h3>Words to know</h3>${concepts}</section>` : ""}
+    ${next ? `<section class="blk"><h3>Where to go next</h3>${next}</section>` : ""}`;
+}
+
+// The grade: how faithful this reconstruction is, and where it is weakest.
+function renderGrade(d){
+  const a = d.assessment;
+  const none = (h, p) => `<div class="empty" style="padding-top:40px"><h3 style="color:var(--ink);margin:0 0 4px">${h}</h3><p>${p || ""}</p></div>`;
+  if (!a || !a.criteria || !a.criteria.length) return none("No grade", "There was not enough output to grade.");
+  const criteria = a.criteria.map(c => {
+    const score = Math.max(0, Math.min(100, Number(c.score) || 0));
+    return `<div class="crit">
+      <div class="crit-head"><strong>${esc(c.criterion)}</strong>
+        <span class="crit-score">${esc(score)}/100 <span class="verdict ${esc(c.verdict)}">${esc(c.verdict)}</span></span></div>
+      <div class="bar"><i class="${esc(c.verdict)}" style="width:${score}%"></i></div>
+      <p>${esc(c.evidence)}</p></div>`;
+  }).join("");
+  const gaps = (a.gaps || []).length ? `<section class="blk"><h3>Worth a second look</h3><ul>${a.gaps.map(g => `<li>${esc(g)}</li>`).join("")}</ul></section>` : "";
+  return `
+    <div class="grade-top">
+      <div class="grade-score">${esc(Number(a.score) || 0)}<small>/100</small></div>
+      <span class="grade-band ${esc(a.confidence)}">${esc(a.confidence)} confidence</span>
+    </div>
+    ${a.rationale ? `<p class="hint" style="margin:0 0 18px">${esc(a.rationale)}</p>` : ""}
+    ${criteria}
+    ${gaps}`;
+}
+
+// Needs review: what changed in the original idea, and what is still unclear.
+function renderReview(d){
+  const none = (h, p) => `<div class="empty" style="padding-top:40px"><h3 style="color:var(--ink);margin:0 0 4px">${h}</h3><p>${p || ""}</p></div>`;
+  const devs = d.deviations || [];
+  const devHtml = devs.length ? `<section class="blk">
+    <h3>Changes to your original idea</h3>
+    <p class="hint">What was changed in your drawing, and why it was necessary.</p>
+    ${devs.map(v => `<div class="dev">
+      <b>${esc(v.change)}</b>
+      ${v.why ? `<div class="why">Why: ${esc(v.why)}</div>` : ""}
+      ${v.basis ? `<span class="basis">${esc(v.basis)}</span>` : ""}
+    </div>`).join("")}</section>` : "";
+  const unclear = d.uncertain_text.map(u =>
+    `<div class="uncertain"><b>${esc(u.text_or_location)}</b><span>${esc(u.reason)}</span></div>`).join("");
+  const unclearHtml = unclear || `<div class="empty" style="padding-top:24px"><h3 style="color:var(--ink);margin:0 0 4px">Nothing unclear</h3><p>Everything in the drawing was legible.</p></div>`;
+  return devHtml + unclearHtml;
+}
+
+window.toggleTask = i => {
+  const a = currentResult.action_items[i]; a.done = !a.done; edited();
+  $("taskText_" + i).classList.toggle("done", a.done);
+};
+
+async function drawMermaid(id, code, container){
+  const el = document.getElementById(id); if (!el) return;
+  try {
+    // mermaid.render() injects a temporary node under the id it is given, so
+    // two renders sharing an id collide; give every render a fresh one.
+    const renderId = `mmdRender${++mermaidRenderCount}`;
+    const {svg} = await mermaid.render(renderId, code);
+    // The panel may have been re-rendered while mermaid was working.
+    if (!el.isConnected) return;
+    el.innerHTML = svg;
+  } catch (err) {
+    if (!el.isConnected) return;
+    if (container) container.innerHTML = `<div class="banner warn" style="width:100%;text-align:left"><strong>The diagram couldn't be drawn</strong>
+      <span>${esc(err.message || "Syntax error")}. Here is the raw source instead; fix it with Edit source.</span></div><pre class="src">${esc(code)}</pre>`;
+  }
+}
+
+// Exports
+function mountExports(){
+  const d = currentResult;
+  const slug = (d.title || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "scribble-structure";
+  $("exportsBar").innerHTML = `
+    <button id="pngDl">Download image (.png)</button>
+    <button id="mdDl">Download Markdown</button><button id="txtDl">Download text</button><button id="jsonDl">Download JSON</button>
+    ${d.diagram ? `<button id="mmdDl">Download Mermaid</button>` : ""}<hr>
+    <button id="copyNotesBtn">Copy notes</button><button id="copyMdBtn">Copy Markdown</button>`;
+  $("exportsBar").onclick = () => $("exportMenu").removeAttribute("open");
+  $("pngDl").onclick = () => downloadShareImage(d, slug);
+  $("mdDl").onclick = () => downloadFile(`${slug}.md`, generateMarkdown(d), "text/markdown");
+  $("txtDl").onclick = () => downloadFile(`${slug}.txt`, generatePlainText(d));
+  $("jsonDl").onclick = () => downloadFile(`${slug}.json`, JSON.stringify(d, null, 2), "application/json");
+  if ($("mmdDl")) $("mmdDl").onclick = () => downloadFile(`${slug}.mmd`, d.diagram.mermaid);
+  $("copyNotesBtn").onclick = () => copyToClipboard(d.notes.map(n => `${n.heading}\n${n.content.map(c => `• ${c}`).join("\n")}`).join("\n\n"), "Notes copied");
+  $("copyMdBtn").onclick = () => copyToClipboard(generateMarkdown(d), "Markdown copied");
+
+  if ($("toggleEditorBtn")) $("toggleEditorBtn").onclick = () => {
+    const b = $("diagramEditorBox"); b.style.display = b.style.display === "none" ? "block" : "none";
+  };
+  if ($("updateDiagramBtn")) $("updateDiagramBtn").onclick = async () => {
+    currentResult.diagram.mermaid = $("mermaidSource").value; edited();
+    await drawMermaid("mmdMain", currentResult.diagram.mermaid, $("mermaidBox"));
+  };
+  if ($("dlMmdBtn")) $("dlMmdBtn").onclick = () => downloadFile(`${slug}.mmd`, d.diagram.mermaid);
+  if ($("dlSvgBtn")) $("dlSvgBtn").onclick = () => {
+    const svg = liveSvg();
+    if (!svg) { alert("The diagram hasn't been drawn yet."); return; }
+    downloadFile(`${slug}.svg`, standaloneSvg(svg), "image/svg+xml");
+  };
+  if ($("dlPngBtn")) $("dlPngBtn").onclick = () => downloadDiagramPng(slug);
+  if ($("copyMmdBtn")) $("copyMmdBtn").onclick = () => copyToClipboard(d.diagram.mermaid, "Mermaid source copied");
+  if ($("copySqlBtn")) $("copySqlBtn").onclick = () => copyToClipboard(d.sql_schema, "SQL copied");
+}
+
+function generateMarkdown(d){
+  const L = [`# ${d.title}`, "", `*Made with Scribble2Structure using ${d.telemetry?.model || "a vision-language model"}*`, ""];
+  if (d.assessment && d.assessment.score !== undefined){
+    L.push(`> **Fidelity grade: ${d.assessment.score}/100 (${d.assessment.confidence})**`, "> ", `> ${d.assessment.rationale || ""}`, "");
+    (d.assessment.criteria || []).forEach(c => L.push(`> - ${c.criterion}: ${c.score}/100 (${c.verdict}) — ${c.evidence}`));
+    L.push("");
+  }
+  if (d.summary) L.push("## Summary", "", d.summary, "");
+  if (d.notes.length) { L.push("## Notes", ""); d.notes.forEach(n => { L.push(`### ${n.heading} (${n.confidence})`); n.content.forEach(c => L.push(`- ${c}`)); L.push(""); }); }
+  if (d.takeaways.length) { L.push("## Key takeaways", ""); d.takeaways.forEach((t, i) => L.push(`${i + 1}. ${t}`)); L.push(""); }
+  if (d.action_items.length) { L.push("## Action plan", ""); d.action_items.forEach(a =>
+    L.push(`- ${a.done ? "[x]" : "[ ]"} ${a.task}${a.owner ? ` *(owner: ${a.owner})*` : ""}${a.deadline ? ` *(due: ${a.deadline})*` : ""}`)); L.push(""); }
+  if (d.diagram?.mermaid) { L.push("## Diagram", "", "```mermaid", d.diagram.mermaid.trim(), "```", ""); if (d.diagram_explanation) L.push(d.diagram_explanation, ""); }
+  if (d.sql_schema) L.push("## SQL schema", "", "```sql", d.sql_schema.trim(), "```", "");
+  if ((d.guide?.steps || []).length || d.guide?.overview){
+    L.push("## Guide", "");
+    if (d.guide.overview) L.push(d.guide.overview, "");
+    (d.guide.steps || []).forEach((s, i) => L.push(`${i + 1}. **${s.title || "Step " + (i + 1)}** — ${s.detail}`));
+    (d.guide.concepts || []).forEach(c => L.push(`- **${c.term || "Term"}**: ${c.meaning}`));
+    (d.guide.next_steps || []).forEach(s => L.push(`- Next: ${s}`));
+    L.push("");
+  }
+  if (d.suggestions.length) { L.push("## AI suggestions", ""); d.suggestions.forEach(s => L.push(`- ${s}`)); L.push(""); }
+  if ((d.deviations || []).length) {
+    L.push("## Changes to the original idea", "");
+    d.deviations.forEach(v => L.push(`- **${v.change}**${v.why ? ` — ${v.why}` : ""}`));
+    L.push("");
+  }
+  if (d.uncertain_text.length) { L.push("## Needs review", ""); d.uncertain_text.forEach(u => L.push(`- **${u.text_or_location}**: ${u.reason}`)); L.push(""); }
+  L.push("---", "*Check AI output before you rely on it.*");
+  return L.join("\n");
+}
+
+function generatePlainText(d){
+  const L = [d.title.toUpperCase(), "=".repeat(d.title.length), ""];
+  if (d.summary) L.push("SUMMARY:", d.summary, "");
+  if (d.notes.length) { L.push("NOTES:"); d.notes.forEach(n => { L.push(`[${n.heading}]`); n.content.forEach(c => L.push(`  * ${c}`)); }); L.push(""); }
+  if (d.takeaways.length) { L.push("KEY TAKEAWAYS:"); d.takeaways.forEach((t, i) => L.push(`  ${i + 1}. ${t}`)); L.push(""); }
+  if (d.action_items.length) { L.push("ACTION ITEMS:"); d.action_items.forEach(a => {
+    const m = [a.owner && `owner: ${a.owner}`, a.deadline && `due: ${a.deadline}`].filter(Boolean).join(", ");
+    L.push(`  ${a.done ? "[DONE]" : "[TODO]"} ${a.task}${m ? ` (${m})` : ""}`); }); L.push(""); }
+  if (d.diagram_explanation) L.push("DIAGRAM DESCRIPTION:", d.diagram_explanation, "");
+  return L.join("\n");
+}
+
+function downloadFile(name, content, type = "text/plain"){
+  const url = URL.createObjectURL(new Blob([content], {type}));
+  const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
+}
+
+function liveSvg(){
+  return document.querySelector("#mmdMain svg") || document.querySelector("#sideMmd svg");
+}
+
+// Mermaid emits a DOM fragment with CSS-driven sizing; it only renders
+// standalone once it carries a namespace and explicit pixel dimensions.
+function standaloneSvg(svg, bg = "#ffffff"){
+  const box = svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width
+    ? { w: svg.viewBox.baseVal.width, h: svg.viewBox.baseVal.height }
+    : { w: svg.width.baseVal.value || 800, h: svg.height.baseVal.value || 600 };
+
+  const clone = svg.cloneNode(true);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", Math.ceil(box.w));
+  clone.setAttribute("height", Math.ceil(box.h));
+  clone.removeAttribute("style");
+  const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  bgRect.setAttribute("x", 0); bgRect.setAttribute("y", 0);
+  bgRect.setAttribute("width", Math.ceil(box.w)); bgRect.setAttribute("height", Math.ceil(box.h));
+  bgRect.setAttribute("fill", bg);
+  clone.insertBefore(bgRect, clone.firstChild);
+  return { markup: new XMLSerializer().serializeToString(clone), width: box.w, height: box.h };
+}
+
+async function downloadDiagramPng(slug, scale = 2){
+  const svg = liveSvg();
+  if (!svg) { alert("The diagram hasn't been drawn yet."); return; }
+  const { markup, width, height } = standaloneSvg(svg);
+  // Cap the raster: a wide ER diagram at 2x can exceed canvas limits.
+  const s = Math.max(1, Math.min(scale, 12000 / Math.max(width, height)));
+  const blob = new Blob([markup], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(width * s);
+    canvas.height = Math.ceil(height * s);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    await new Promise(res => canvas.toBlob(b => {
+      if (!b) { toast("Could not build the PNG"); return res(); }
+      const out = URL.createObjectURL(b);
+      const a = document.createElement("a");
+      a.href = out; a.download = `${slug || "diagram"}.png`; a.click();
+      URL.revokeObjectURL(out);
+      toast("Diagram saved as PNG");
+      res();
+    }, "image/png"));
+  } catch (e) {
+    toast("PNG export failed — use Download SVG instead");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Share image: deterministic rendering of the extraction to a PNG.
+//
+// Text is drawn with the canvas 2D API rather than generated by a model, so
+// formulas, variable names and identifiers come out exactly as extracted. No
+// external dependency, no font file to ship, and it works offline.
+// ---------------------------------------------------------------------------
+
+const CARD = {
+  w: 1080, pad: 64, scale: 2,
+  sans: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif',
+  mono: 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace',
+  ink: "#15171c", mut: "#6b7280", line: "#e7e9ee", acc: "#3a4ff0",
+  card: "#ffffff", bg: "#f6f7f9", accSoft: "#eef0ff",
+  // Caps so a runaway extraction cannot produce a canvas the browser refuses.
+  maxNotes: 30, maxItems: 25, maxSqlLines: 50, maxHeight: 12000,
+};
+
+function wrapText(ctx, text, maxWidth, font){
+  ctx.font = font;
+  const words = String(text == null ? "" : text).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  for (const word of words){
+    const probe = line ? line + " " + word : word;
+    if (ctx.measureText(probe).width <= maxWidth || !line) line = probe;
+    else { lines.push(line); line = word; }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [""];
+}
+
+function roundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Measures every block first so the canvas is only as tall as it needs to be.
+function planCard(d){
+  const m = document.createElement("canvas").getContext("2d");
+  const W = CARD.w, inner = W - CARD.pad * 2;
+  const fTitle = `600 40px ${CARD.sans}`;
+  const fMeta = `13px ${CARD.sans}`;
+  const fH = `600 20px ${CARD.sans}`;
+  const fBody = `19px ${CARD.sans}`;
+  const fMono = `17px ${CARD.mono}`;
+  const fFoot = `13px ${CARD.sans}`;
+
+  const blocks = [];
+  const add = (o) => { blocks.push(o); return o; };
+
+  add({ type: "title", lines: wrapText(m, d.title || "Extraction", inner, fTitle), font: fTitle, gap: 10 });
+
+  const bits = [];
+  if (d.detected_mode) bits.push(d.detected_mode);
+  else if (d.mode && d.mode !== "auto") bits.push(d.mode);
+  if (d.source && d.source.filename) bits.push(d.source.filename);
+  if (d.assessment && d.assessment.score !== undefined) bits.push(`grade ${d.assessment.score}/100 (${d.assessment.confidence})`);
+  add({ type: "meta", lines: [bits.join("  ·  ")], font: fMeta, gap: 26 });
+
+  if (d.summary) add({ type: "text", text: d.summary, font: fBody, gap: 26 });
+
+  (d.notes || []).slice(0, CARD.maxNotes).forEach(n => add({
+    type: "note",
+    heading: n.heading || "Notes",
+    confidence: n.confidence || "",
+    items: (n.content || []).slice(0, CARD.maxItems),
+    font: fBody, gap: 16,
+  }));
+
+  if ((d.takeaways || []).length) add({
+    type: "list", title: "Key takeaways", numbered: true,
+    items: d.takeaways.slice(0, CARD.maxItems), font: fBody, gap: 16,
+  });
+
+  if ((d.action_items || []).length) add({
+    type: "list", title: "Action plan", checks: true,
+    items: d.action_items.slice(0, CARD.maxItems).map(a => ({
+      text: a.task,
+      meta: [a.owner ? "owner: " + a.owner : "unassigned", a.deadline ? "due: " + a.deadline : "not stated"].join(" · "),
+      done: !!a.done,
+    })), font: fBody, gap: 16,
+  });
+
+  if ((d.deviations || []).length) add({
+    type: "list", title: "Changes to your original idea",
+    items: d.deviations.slice(0, CARD.maxItems).map(v => ({
+      text: v.change || "",
+      meta: v.why || "",
+    })),
+    font: fBody, gap: 16,
+  });
+
+  if (d.sql_schema) add({
+    type: "code",
+    text: d.sql_schema.split("\n").slice(0, CARD.maxSqlLines).join("\n"),
+    font: fMono, gap: 16,
+  });
+
+  add({ type: "foot", lines: [
+    "Made with Scribble2Structure" + (d.telemetry && d.telemetry.model ? " · " + d.telemetry.model : ""),
+    "AI output — verify before use.",
+  ], font: fFoot, gap: 0 });
+
+  // Second pass: measure every block, then place as many as the canvas allows.
+// Blocks past maxHeight are dropped rather than drawn: a canvas the browser
+// refuses to allocate is worse than a card that shows less.
+  for (const b of blocks){
+    if (b.type === "title"){ b.h = b.lines.length * 46; }
+    else if (b.type === "foot"){ b.h = b.lines.length * 22 + 12; }
+    else if (b.type === "meta"){ b.h = 20; }
+    else if (b.type === "text"){ b.lines = wrapText(m, b.text, inner, b.font); b.h = b.lines.length * 30; }
+    else if (b.type === "note"){
+      b.headLines = wrapText(m, b.heading, inner - 60, fH);
+      b.itemLines = b.items.map(t => wrapText(m, t, inner - 74, b.font));
+      b.h = 18 + b.headLines.length * 28 + 14 + b.itemLines.reduce((s, l) => s + l.length * 29, 0) + 24;
+    }
+    else if (b.type === "list"){
+      b.titleLines = wrapText(m, b.title, inner, fH);
+      b.itemLines = b.items.map(it => {
+        const text = typeof it === "string" ? it : it.text;
+        const sub = typeof it === "string" ? "" : it.meta;
+        const lines = wrapText(m, text, inner - 70, b.font);
+        return { lines, sub, done: !!(typeof it === "object" && it.done) };
+      });
+      b.h = 14 + b.titleLines.length * 28 + 8 + b.itemLines.reduce((s, it) => s + it.lines.length * 29 + (it.sub ? 22 : 0) + 6, 0) + 16;
+    }
+    else if (b.type === "code"){
+      b.lines = wrapText(m, b.text, inner - 40, b.font);
+      b.h = 20 + b.lines.length * 26;
+    }
+  }
+
+  const foot = blocks[blocks.length - 1];
+  const reserve = (foot && foot.type === "foot") ? foot.h : 0;
+  const placed = [];
+  let y = CARD.pad, dropped = 0;
+  for (const b of blocks){
+    if (b.type === "foot") continue;
+    // Title and meta always fit; anything else yields to the cap.
+    const essential = b.type === "title" || b.type === "meta";
+    if (!essential && y + b.h + reserve > CARD.maxHeight){ dropped++; continue; }
+    b.y = y;
+    y += b.h + b.gap;
+    placed.push(b);
+  }
+  if (foot && foot.type === "foot"){
+    if (dropped > 0){
+      foot.lines = foot.lines.concat(`${dropped} later section(s) not shown — use the exports for the full result.`);
+      foot.h = foot.lines.length * 22 + 12;
+    }
+    foot.y = y;
+    y += foot.h;
+    placed.push(foot);
+  }
+  return { blocks: placed, height: Math.ceil(y + CARD.pad) };
+}
+
+function drawCard(ctx, plan, d){
+  const W = CARD.w, inner = W - CARD.pad * 2;
+  ctx.fillStyle = CARD.bg;
+  ctx.fillRect(0, 0, W, plan.height);
+
+  // Accent rule at the top.
+  ctx.fillStyle = CARD.acc;
+  ctx.fillRect(0, 0, W, 6);
+
+  for (const b of plan.blocks){
+    const y = b.y;
+    if (b.type === "title"){
+      ctx.fillStyle = CARD.ink;
+      ctx.font = b.font;
+      b.lines.forEach((l, i) => ctx.fillText(l, CARD.pad, y + 38 + i * 46));
+    }
+    else if (b.type === "meta"){
+      ctx.fillStyle = CARD.mut; ctx.font = b.font;
+      ctx.fillText(b.lines[0], CARD.pad, y + 14);
+    }
+    else if (b.type === "text"){
+      ctx.fillStyle = CARD.ink; ctx.font = b.font;
+      b.lines.forEach((l, i) => ctx.fillText(l, CARD.pad, y + 26 + i * 30));
+    }
+    else if (b.type === "note"){
+      ctx.fillStyle = CARD.card;
+      roundRect(ctx, CARD.pad, y, inner, b.h, 16); ctx.fill();
+      ctx.strokeStyle = CARD.line; ctx.lineWidth = 2; ctx.stroke();
+      let cy = y + 18;
+      ctx.fillStyle = CARD.ink; ctx.font = `600 20px ${CARD.sans}`;
+      b.headLines.forEach((l, i) => ctx.fillText(l, CARD.pad + 28, cy + 20 + i * 28));
+      if (b.confidence){
+        const label = b.confidence.toUpperCase();
+        ctx.font = `600 11px ${CARD.sans}`;
+        const w = ctx.measureText(label).width + 20;
+        const hx = CARD.pad + inner - 28 - w;
+        ctx.fillStyle = CARD.accSoft;
+        roundRect(ctx, hx, y + 20, w, 22, 11); ctx.fill();
+        ctx.fillStyle = CARD.acc;
+        ctx.fillText(label, hx + 10, y + 35);
+      }
+      cy += b.headLines.length * 28 + 14;
+      ctx.font = b.font;
+      b.itemLines.forEach(lines => {
+        ctx.fillStyle = CARD.acc;
+        ctx.beginPath(); ctx.arc(CARD.pad + 36, cy + 8, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = CARD.ink;
+        lines.forEach((l, i) => ctx.fillText(l, CARD.pad + 54, cy + 14 + i * 29));
+        cy += lines.length * 29;
+      });
+    }
+    else if (b.type === "list"){
+      let cy = y + 14;
+      ctx.fillStyle = CARD.ink; ctx.font = `600 20px ${CARD.sans}`;
+      b.titleLines.forEach((l, i) => ctx.fillText(l, CARD.pad, cy + 20 + i * 28));
+      cy += b.titleLines.length * 28 + 8;
+      b.itemLines.forEach((it, idx) => {
+        ctx.font = b.font;
+        if (b.checks){
+          ctx.strokeStyle = it.done ? CARD.acc : CARD.line;
+          ctx.lineWidth = 2;
+          roundRect(ctx, CARD.pad + 2, cy + 2, 18, 18, 5); ctx.stroke();
+          if (it.done){
+            ctx.strokeStyle = CARD.acc;
+            ctx.beginPath();
+            ctx.moveTo(CARD.pad + 6, cy + 11); ctx.lineTo(CARD.pad + 10, cy + 15); ctx.lineTo(CARD.pad + 17, cy + 6);
+            ctx.stroke();
+          }
+        } else {
+          ctx.fillStyle = CARD.acc; ctx.font = `600 19px ${CARD.sans}`;
+          ctx.fillText(String(idx + 1) + ".", CARD.pad + 2, cy + 18);
+        }
+        ctx.fillStyle = CARD.ink; ctx.font = b.font;
+        it.lines.forEach((l, i) => ctx.fillText(l, CARD.pad + 32, cy + 18 + i * 29));
+        cy += it.lines.length * 29;
+        if (it.sub){
+          ctx.fillStyle = CARD.mut; ctx.font = `13px ${CARD.sans}`;
+          ctx.fillText(it.sub, CARD.pad + 32, cy + 14);
+          cy += 22;
+        }
+        cy += 6;
+      });
+    }
+    else if (b.type === "code"){
+      ctx.fillStyle = CARD.card;
+      roundRect(ctx, CARD.pad, y, inner, b.h, 14); ctx.fill();
+      ctx.strokeStyle = CARD.line; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = "#3b4252"; ctx.font = b.font;
+      b.lines.forEach((l, i) => ctx.fillText(l, CARD.pad + 20, y + 34 + i * 26));
+    }
+    else if (b.type === "foot"){
+      ctx.strokeStyle = CARD.line; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(CARD.pad, y + 4); ctx.lineTo(W - CARD.pad, y + 4); ctx.stroke();
+      ctx.fillStyle = CARD.mut; ctx.font = b.font;
+      b.lines.forEach((l, i) => ctx.fillText(l, CARD.pad, y + 30 + i * 20));
+    }
+  }
+}
+
+function downloadShareImage(d, slug){
+  const plan = planCard(d);
+  const canvas = document.createElement("canvas");
+  canvas.width = CARD.w * CARD.scale;
+  canvas.height = plan.height * CARD.scale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(CARD.scale, CARD.scale);
+  drawCard(ctx, plan, d);
+  canvas.toBlob(blob => {
+    if (!blob) { toast("Could not build the image"); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${slug || "extraction"}.png`; a.click();
+    URL.revokeObjectURL(url);
+    toast("Image saved");
+  }, "image/png");
+}
+async function copyToClipboard(text, msg){
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); toast(msg); return; } } catch (e) {}
+  prompt("Copy with Ctrl+C, then press Enter:", text);
+}
+</script>
+</body>
+</html>
