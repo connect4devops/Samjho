@@ -701,10 +701,26 @@ def normalize_extraction(
                 "Diagram source failed validation and was omitted; notes are unaffected."
             )
 
-    if not notes and not takeaways and not actions:
+    if not notes and coverage:
+        coverage_lines = [
+            f"{item['label']}: {item['detail']}" if item["detail"] else item["label"]
+            for item in coverage
+        ]
+        notes = [
+            {
+                "heading": "Visible labels",
+                "content": coverage_lines,
+                "confidence": "medium",
+            }
+        ]
+        if title == "Untitled Extraction":
+            title = "Extracted Labels"
+
+    if not notes and not takeaways and not actions and not diagram and not coverage:
         warnings.append(
-            "No readable structured text was found in this image. Try a sharper photo with "
-            "better lighting or tighter cropping."
+            "The model did not return readable content from this image. This does not "
+            "necessarily mean the image is unclear. Try Auto Detect or another mode, or "
+            "inspect the model response under “Why is this empty?”."
         )
 
     free_text = _string_values(payload)
@@ -727,8 +743,8 @@ def normalize_extraction(
         # empty panels as if the extraction were merely sparse.
         warnings.append(
             "The model returned the requested JSON template instead of reading the image, "
-            "so nothing could be reconstructed. Try a larger model "
-            "(GEMMA_MODEL=gemma-3-27b-it) or a clearer image."
+            "so nothing could be reconstructed. Try Auto Detect or another mode, and "
+            "check that the JarvisLabs deployment is serving the configured vision model."
         )
 
     # Changes the app made to the drawing itself (a repaired ER attribute, a
