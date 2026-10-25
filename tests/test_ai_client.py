@@ -458,6 +458,29 @@ class TestEmptyContentRetry:
         assert len(client.calls) == 1
         assert ext.diagram is not None
 
+    def test_coverage_labels_are_kept_as_notes_without_a_second_call(
+        self, image, client_env
+    ):
+        payload = {
+            "title": "Untitled Extraction",
+            "notes": [],
+            "takeaways": [],
+            "coverage": [
+                {"label": "NP-hard", "kind": "node"},
+                {"label": "NP-complete", "kind": "node"},
+                {"label": "P", "kind": "node"},
+            ],
+            "diagram": None,
+        }
+        client = client_env(replies=[json.dumps(payload)])
+
+        extraction, telemetry = ai_client.analyze(image, mode="notes")
+
+        assert extraction.title == "Extracted Labels"
+        assert extraction.notes[0]["content"] == ["NP-hard", "NP-complete", "P"]
+        assert "content_attempts" not in telemetry
+        assert len(client.calls) == 1
+
     def test_retry_failure_is_not_fatal(self, image, client_env):
         client_env(
             replies=[json.dumps(self.EMPTY)],

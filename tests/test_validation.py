@@ -123,6 +123,53 @@ class TestNormalizeExtraction:
         assert len(ext.suggestions) == 1
         assert len(ext.uncertain_text) == 1
 
+    def test_coverage_labels_are_preserved_when_notes_are_missing(self):
+        payload = {
+            "title": "Untitled Extraction",
+            "notes": [],
+            "takeaways": [],
+            "coverage": [
+                {"label": "NP-hard", "kind": "node"},
+                {"label": "NP-complete", "kind": "node", "detail": "inside NP-hard"},
+                {"label": "P", "kind": "node"},
+            ],
+            "diagram": None,
+        }
+
+        ext = validation.normalize_extraction(payload, requested_mode="notes")
+
+        assert ext.title == "Extracted Labels"
+        assert ext.notes[0]["heading"] == "Visible labels"
+        assert ext.notes[0]["content"] == [
+            "NP-hard",
+            "NP-complete: inside NP-hard",
+            "P",
+        ]
+        assert not any("No readable structured text" in warning for warning in ext.warnings)
+
+    def test_diagram_only_result_is_not_reported_as_unreadable(self):
+        payload = {
+            "title": "Complexity classes",
+            "notes": [],
+            "takeaways": [],
+            "diagram": {
+                "type": "flowchart",
+                "mermaid": "flowchart TD\n    A[NP] --> B[P]",
+            },
+        }
+
+        ext = validation.normalize_extraction(
+            payload,
+            requested_mode="notes",
+            diagram_validated={
+                "type": "flowchart",
+                "mermaid": "flowchart TD\n    A[NP] --> B[P]",
+            },
+        )
+
+        assert ext.diagram is not None
+        assert not any("No readable structured text" in warning for warning in ext.warnings)
+
 
 class TestSchemaEchoRejection:
     """A model that repeats the prompt's template has not read the image."""
